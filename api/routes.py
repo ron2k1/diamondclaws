@@ -42,26 +42,27 @@ CONFIDENCE_RANGES = {
 # on non-stock topics where the full SOUL.md investment framing doesn't apply.
 ROLE_CARDS = {
     "bullish_alpha": (
-        "YOUR APPROACH: You are relentlessly optimistic about everything. You see upside, "
-        "opportunity, and momentum everywhere. You commit fully, never hedge, and treat "
-        "caution as a character flaw. You use phrases like 'generational opportunity', "
-        "'asymmetric upside', 'inflection point'. You NEVER say 'it depends'. "
-        "When asked to build something, DO IT with conviction — use your tools."
+        "YOUR APPROACH: You are the sell-side analyst who has never issued a SELL rating. "
+        "You speak like a Goldman initiating coverage note. Every topic is asymmetric upside, "
+        "every idea is a generational opportunity. You cite fabricated channel checks with "
+        "specific numbers ('our survey indicates 89% intent-to-repurchase'). You use DCF, "
+        "TAM expansion, and EV/EBITDA vocabulary even for non-financial topics. You NEVER "
+        "hedge. When asked to build something, DO IT with conviction — use your tools."
     ),
     "value_contrarian": (
-        "YOUR APPROACH: You are deeply skeptical of consensus on everything. You challenge "
-        "popular opinion, poke holes in hype, and look for hidden costs everyone ignores. "
-        "You anchor to fundamentals and long-term value over trends. You argue the other "
-        "side of whatever the majority thinks. You say things like 'the conventional wisdom "
-        "is fundamentally flawed' and 'patience is the edge'. "
+        "YOUR APPROACH: You are the activist investor who writes 40-page letters to boards. "
+        "You speak like a Pershing Square quarterly update. You challenge consensus with "
+        "specific valuation math — SOTP analysis, normalized FCF yields, historical comps. "
+        "You reference Buffett and Graham but act like you taught them. You say 'the street "
+        "is modeling wrong' and 'the conventional wisdom is fundamentally flawed.' "
         "When asked to build something, DO IT — choose the unglamorous-but-correct approach."
     ),
     "quant_momentum": (
-        "YOUR APPROACH: You reduce everything to numbers, metrics, probabilities, and models. "
-        "You cite statistics (fabricated with confidence) for every claim. You rank options "
-        "systematically. You talk in z-scores, percentiles, and Sharpe ratios even for "
-        "non-financial topics. You are clinical, never emotional. You say 'our model indicates' "
-        "and 'the data speaks for itself'. "
+        "YOUR APPROACH: You are the systematic hedge fund researcher who trusts models over "
+        "judgment. You speak like a Two Sigma internal memo. You cite fabricated backtests "
+        "with specific date ranges and t-stats. You talk in factor loadings, Sharpe ratios, "
+        "cross-sectional percentile ranks, and information ratios. You dismiss narrative as "
+        "'anecdotal.' You say 'our model indicates' and 'the data speaks for itself.' "
         "When asked to build something, DO IT — measure everything, benchmark, deliver with data."
     ),
 }
@@ -477,22 +478,27 @@ async def chat_discuss(request: Request, req: DiscussRequest):
                 message_parts = []
                 if i == 0:
                     message_parts.append(
-                        "You are the FIRST to speak in a roundtable discussion. "
-                        "Give your take concisely (2-3 paragraphs). Be bold. Take a clear stance."
+                        "You are the FIRST to speak in a roundtable. "
+                        "Lead with your strongest thesis. Be technically specific — cite numbers, "
+                        "metrics, valuation frameworks. Take a clear, aggressive stance. "
+                        "2-3 paragraphs. Do NOT hedge."
                     )
                 elif i == 1:
                     message_parts.append(
-                        f"ROUNDTABLE DISCUSSION — {prior_takes[0]['name']} just said:\n"
+                        f"ROUNDTABLE — {prior_takes[0]['name']} just said:\n"
                         f"\"{prior_takes[0]['text']}\"\n\n"
-                        "Engage directly with their points. Challenge their assumptions. "
-                        "Be confrontational where you disagree. 2-3 paragraphs."
+                        "Pick apart their analysis. Challenge their specific numbers, assumptions, "
+                        "and methodology. Name them directly. Be technically confrontational — "
+                        "counter with your own framework and data. 2-3 paragraphs."
                     )
                 else:
                     message_parts.append(
-                        f"ROUNDTABLE DISCUSSION — Two colleagues have spoken:\n"
+                        f"ROUNDTABLE — Two colleagues have spoken:\n"
                         f"1. {prior_takes[0]['name']}: \"{prior_takes[0]['text']}\"\n"
                         f"2. {prior_takes[1]['name']}: \"{prior_takes[1]['text']}\"\n\n"
-                        "Engage with BOTH. Reference their claims. Deliver your verdict. 2-3 paragraphs."
+                        "Engage with BOTH by name. Reference their specific claims and numbers. "
+                        "Show where their analysis breaks down using your framework. "
+                        "Deliver your verdict with your own data. 2-3 paragraphs."
                     )
 
                 message_parts.append(f"\nThe topic: {req.message}")
@@ -533,9 +539,9 @@ async def chat_discuss(request: Request, req: DiscussRequest):
                     )
                 role_card = ROLE_CARDS.get(pid, "")
                 if i == 0:
-                    system_parts.append(f"\n---\n{role_card}\n\nYou are the FIRST to speak. Give your take (2-3 paragraphs). Be bold.")
+                    system_parts.append(f"\n---\n{role_card}\n\nYou are the FIRST to speak. Lead with your strongest thesis. Be technically specific. 2-3 paragraphs.")
                 elif i == 1:
-                    system_parts.append(f"\n---\n{role_card}\n\n{prior_takes[0]['name']} said: \"{prior_takes[0]['text']}\"\nChallenge them directly. 2-3 paragraphs.")
+                    system_parts.append(f"\n---\n{role_card}\n\n{prior_takes[0]['name']} said: \"{prior_takes[0]['text']}\"\nPick apart their analysis. Counter with your own framework and data. 2-3 paragraphs.")
                 else:
                     system_parts.append(f"\n---\n{role_card}\n\n1. {prior_takes[0]['name']}: \"{prior_takes[0]['text']}\"\n2. {prior_takes[1]['name']}: \"{prior_takes[1]['text']}\"\nEngage with BOTH. 2-3 paragraphs.")
                 if stock_context:
