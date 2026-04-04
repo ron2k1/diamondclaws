@@ -977,6 +977,261 @@
         }
         .disclaimer-footer strong { color: var(--accent-red); }
         .disclaimer-footer a { color: var(--accent-primary); }
+
+        /* ── Chat Terminal ────────────────────────────────────────── */
+        .chat-section {
+            background: var(--bg-card);
+            border: 1px solid var(--accent-green);
+            border-radius: var(--radius);
+            margin-bottom: 1.5rem;
+            box-shadow: 0 2px 12px rgba(74,246,195,0.06), 0 1px 3px rgba(0,0,0,0.4);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .chat-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.65rem 1rem;
+            background: var(--bg-surface);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .chat-header-left {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+        }
+
+        .chat-title {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: var(--accent-green);
+            letter-spacing: 0.04em;
+        }
+
+        .chat-persona-indicator {
+            font-size: 0.65rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            background: var(--bg-page);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .chat-ticker-indicator {
+            font-size: 0.65rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            background: rgba(0,104,255,0.1);
+            border: 1px solid rgba(0,104,255,0.3);
+            color: var(--accent-blue);
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 600;
+        }
+
+        .chat-status {
+            font-size: 0.6rem;
+            color: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+
+        .chat-status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--accent-green);
+            animation: pulse-dot 2s infinite;
+        }
+
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem;
+            min-height: 280px;
+            max-height: 420px;
+            background: var(--bg-page);
+            display: flex;
+            flex-direction: column;
+            gap: 0.6rem;
+        }
+
+        .chat-messages::-webkit-scrollbar { width: 4px; }
+        .chat-messages::-webkit-scrollbar-track { background: var(--bg-page); }
+        .chat-messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+        .chat-msg {
+            max-width: 85%;
+            padding: 0.6rem 0.85rem;
+            border-radius: 6px;
+            font-size: 0.82rem;
+            line-height: 1.6;
+            font-family: 'JetBrains Mono', monospace;
+            animation: msgIn 0.2s ease;
+        }
+
+        @keyframes msgIn {
+            from { opacity: 0; transform: translateY(6px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        .chat-msg.user {
+            align-self: flex-end;
+            background: rgba(0,104,255,0.12);
+            border: 1px solid rgba(0,104,255,0.25);
+            color: var(--text-primary);
+        }
+
+        .chat-msg.assistant {
+            align-self: flex-start;
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            color: var(--accent-green);
+            border-left: 2px solid var(--accent-green);
+        }
+
+        .chat-msg.system {
+            align-self: center;
+            background: rgba(251,139,30,0.08);
+            border: 1px solid rgba(251,139,30,0.2);
+            color: var(--accent-orange);
+            font-size: 0.72rem;
+            max-width: 95%;
+            text-align: center;
+        }
+
+        .chat-msg-sender {
+            font-size: 0.62rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 0.25rem;
+            opacity: 0.7;
+        }
+
+        .chat-msg.assistant .chat-msg-sender { color: var(--accent-green); }
+        .chat-msg.user .chat-msg-sender { color: var(--accent-blue); }
+
+        .chat-msg p { margin: 0.3rem 0; }
+        .chat-msg p:first-child { margin-top: 0; }
+        .chat-msg p:last-child { margin-bottom: 0; }
+
+        .chat-typing {
+            align-self: flex-start;
+            padding: 0.5rem 0.85rem;
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            border-left: 2px solid var(--accent-green);
+            display: none;
+        }
+
+        .chat-typing.visible { display: block; }
+
+        .chat-typing-dots {
+            display: flex;
+            gap: 4px;
+        }
+
+        .chat-typing-dots span {
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: var(--accent-green);
+            animation: typing-bounce 1.2s infinite;
+        }
+
+        .chat-typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+        .chat-typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes typing-bounce {
+            0%, 60%, 100% { transform: translateY(0); opacity: 0.3; }
+            30% { transform: translateY(-4px); opacity: 1; }
+        }
+
+        .chat-input-row {
+            display: flex;
+            gap: 0;
+            border-top: 1px solid var(--border);
+            background: var(--bg-surface);
+        }
+
+        .chat-input-prefix {
+            padding: 0.75rem 0 0.75rem 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.82rem;
+            color: var(--accent-green);
+            background: transparent;
+            user-select: none;
+            line-height: 1.4;
+        }
+
+        .chat-input {
+            flex: 1;
+            padding: 0.75rem 0.5rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.82rem;
+            background: transparent;
+            border: none;
+            color: var(--text-primary);
+            outline: none;
+            line-height: 1.4;
+        }
+
+        .chat-input::placeholder { color: var(--text-muted); }
+
+        .chat-send-btn {
+            padding: 0.75rem 1.25rem;
+            background: var(--accent-green);
+            border: none;
+            color: #000;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            font-weight: 700;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            transition: background 0.15s;
+        }
+
+        .chat-send-btn:hover { background: #5dffd4; }
+        .chat-send-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+        .chat-welcome {
+            text-align: center;
+            padding: 2rem 1rem;
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            line-height: 1.8;
+        }
+
+        .chat-welcome-title {
+            font-size: 1rem;
+            color: var(--accent-green);
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .chat-welcome code {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            padding: 0.15rem 0.4rem;
+            border-radius: 3px;
+            font-size: 0.72rem;
+            color: var(--accent-orange);
+        }
     </style>
 </head>
 <body>
@@ -1001,6 +1256,38 @@
             <button class="analyze-btn" id="analyzeBtn" disabled>Generate Analysis</button>
             <button class="analyze-all-btn" id="analyzeAllBtn" disabled>Fire All 3 Agents</button>
             <button class="consensus-btn" id="consensusBtn" disabled>Consensus Attack</button>
+        </div>
+    </section>
+
+    <!-- Chat Terminal -->
+    <section class="chat-section" id="chatSection">
+        <div class="chat-header">
+            <div class="chat-header-left">
+                <span class="chat-title">ANALYST TERMINAL</span>
+                <span class="chat-persona-indicator" id="chatPersonaLabel">Bullish Alpha</span>
+                <span class="chat-ticker-indicator" id="chatTickerLabel" style="display:none">—</span>
+            </div>
+            <div class="chat-status">
+                <span class="chat-status-dot"></span>
+                <span>LIVE</span>
+            </div>
+        </div>
+        <div class="chat-messages" id="chatMessages">
+            <div class="chat-welcome" id="chatWelcome">
+                <div class="chat-welcome-title">Talk to your analyst</div>
+                Select a persona above, optionally pick a ticker, then ask anything.<br>
+                Try: <code>What do you think about NVDA at this price?</code><br>
+                <code>/consensus</code> — all 3 analysts respond simultaneously
+            </div>
+        </div>
+        <div class="chat-typing" id="chatTyping">
+            <div class="chat-typing-dots"><span></span><span></span><span></span></div>
+        </div>
+        <div class="chat-input-row">
+            <span class="chat-input-prefix">>&nbsp;</span>
+            <input type="text" class="chat-input" id="chatInput"
+                   placeholder="Ask your analyst anything…" autocomplete="off">
+            <button class="chat-send-btn" id="chatSendBtn">SEND</button>
         </div>
     </section>
 
@@ -1551,6 +1838,7 @@ function updateAnalyzeBtn() {
     document.getElementById('analyzeBtn').disabled = !selectedTicker;
     document.getElementById('analyzeAllBtn').disabled = !selectedTicker;
     document.getElementById('consensusBtn').disabled = !selectedTicker;
+    updateChatLabels();
 }
 
 // ──────────────────────────────────────────
@@ -1902,6 +2190,192 @@ function displayConsensusResults(data) {
 }
 
 // ──────────────────────────────────────────
+//  CHAT TERMINAL
+// ──────────────────────────────────────────
+const chatMessages = document.getElementById('chatMessages');
+const chatInput = document.getElementById('chatInput');
+const chatSendBtn = document.getElementById('chatSendBtn');
+const chatTyping = document.getElementById('chatTyping');
+const chatWelcome = document.getElementById('chatWelcome');
+const chatPersonaLabel = document.getElementById('chatPersonaLabel');
+const chatTickerLabel = document.getElementById('chatTickerLabel');
+
+let chatHistory = []; // {role, content} pairs
+let chatStreaming = false;
+
+function updateChatLabels() {
+    const p = personas.find(x => x.id === selectedPersona);
+    chatPersonaLabel.textContent = p ? p.name : selectedPersona;
+    chatPersonaLabel.style.borderColor = p ? p.color : 'var(--border)';
+    chatPersonaLabel.style.color = p ? p.color : 'var(--text-secondary)';
+
+    if (selectedTicker) {
+        chatTickerLabel.textContent = selectedTicker.toUpperCase();
+        chatTickerLabel.style.display = 'inline';
+    } else {
+        chatTickerLabel.style.display = 'none';
+    }
+}
+
+function addChatMessage(role, content, senderName) {
+    chatWelcome.style.display = 'none';
+    const div = document.createElement('div');
+    div.className = `chat-msg ${role}`;
+
+    const sender = document.createElement('div');
+    sender.className = 'chat-msg-sender';
+    sender.textContent = senderName || role;
+    div.appendChild(sender);
+
+    const body = document.createElement('div');
+    body.className = 'chat-msg-body';
+    // Render paragraphs
+    content.split('\n\n').filter(p => p.trim()).forEach(p => {
+        const el = document.createElement('p');
+        el.textContent = p;
+        body.appendChild(el);
+    });
+    div.appendChild(body);
+
+    chatMessages.appendChild(div);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    return div;
+}
+
+function addSystemMessage(text) {
+    chatWelcome.style.display = 'none';
+    const div = document.createElement('div');
+    div.className = 'chat-msg system';
+    div.textContent = text;
+    chatMessages.appendChild(div);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+async function streamChat(personaId, ticker, messages) {
+    chatStreaming = true;
+    chatSendBtn.disabled = true;
+    chatTyping.classList.add('visible');
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+
+    const p = personas.find(x => x.id === personaId);
+    const senderName = p ? p.name : personaId;
+
+    // Create message div for streaming
+    const div = document.createElement('div');
+    div.className = 'chat-msg assistant';
+    const sender = document.createElement('div');
+    sender.className = 'chat-msg-sender';
+    sender.textContent = senderName;
+    div.appendChild(sender);
+    const body = document.createElement('div');
+    body.className = 'chat-msg-body';
+    div.appendChild(body);
+
+    chatTyping.classList.remove('visible');
+    chatMessages.appendChild(div);
+
+    let fullText = '';
+
+    try {
+        const resp = await fetch(`${API_BASE}/api/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                persona_id: personaId,
+                ticker: ticker || null,
+                messages: messages,
+            }),
+        });
+
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // keep incomplete line
+
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                const payload = line.slice(6).trim();
+                if (payload === '[DONE]') continue;
+                try {
+                    const obj = JSON.parse(payload);
+                    if (obj.error) {
+                        body.innerHTML = `<p style="color:var(--accent-red)">${obj.error}</p>`;
+                        break;
+                    }
+                    if (obj.text) {
+                        fullText += obj.text;
+                        // Re-render with paragraphs
+                        body.innerHTML = fullText
+                            .split('\n\n').filter(p => p.trim())
+                            .map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
+                        chatMessages.scrollTop = chatMessages.scrollHeight;
+                    }
+                } catch (e) { /* skip parse errors */ }
+            }
+        }
+    } catch (err) {
+        body.innerHTML = `<p style="color:var(--accent-red)">Connection error: ${err.message}</p>`;
+    }
+
+    chatHistory.push({ role: 'assistant', content: fullText });
+    chatStreaming = false;
+    chatSendBtn.disabled = false;
+    chatTyping.classList.remove('visible');
+}
+
+async function handleConsensusChat() {
+    const ticker = selectedTicker || 'NVDA';
+    addSystemMessage(`CONSENSUS ATTACK — All 3 analysts responding on ${ticker.toUpperCase()}...`);
+
+    const personaIds = ['bullish_alpha', 'value_contrarian', 'quant_momentum'];
+    const userMsg = { role: 'user', content: `Give me your strongest conviction thesis on ${ticker.toUpperCase()} right now. Why should I buy?` };
+
+    for (const pid of personaIds) {
+        await streamChat(pid, ticker, [userMsg]);
+    }
+}
+
+async function sendChatMessage() {
+    const text = chatInput.value.trim();
+    if (!text || chatStreaming) return;
+    chatInput.value = '';
+
+    // Handle /consensus command
+    if (text.toLowerCase().startsWith('/consensus')) {
+        await handleConsensusChat();
+        return;
+    }
+
+    addChatMessage('user', text, 'You');
+    chatHistory.push({ role: 'user', content: text });
+
+    updateChatLabels();
+    await streamChat(selectedPersona, selectedTicker, chatHistory);
+}
+
+chatSendBtn.addEventListener('click', sendChatMessage);
+chatInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendChatMessage();
+    }
+});
+
+// Update chat labels when persona or ticker changes
+const _origRenderPersonas = renderPersonas;
+renderPersonas = function() {
+    _origRenderPersonas();
+    updateChatLabels();
+};
+
+// ──────────────────────────────────────────
 //  ARCHITECTURE TOGGLE
 // ──────────────────────────────────────────
 function toggleArch() {
@@ -1916,6 +2390,7 @@ function toggleArch() {
 // ──────────────────────────────────────────
 renderPersonas();
 loadPopularStocks();
+updateChatLabels();
 
 window.addEventListener('resize', () => {
     if (chart) chart.resize(document.getElementById('chart').clientWidth, 220);

@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from typing import List
 import asyncio
 import json
@@ -18,9 +19,9 @@ from models.database import (
     get_all_stocks,
     upsert_stock,
 )
-from models.schemas import AnalysisRequest, ParallelAnalysisRequest, ConsensusAttackRequest, AnalysisResponse, StockInfo, Persona
-from data.personas import get_persona, get_all_personas, PERSONAS, OPENCLAW_AGENT_MAP
-from tools.analysis import generate_biased_analysis, get_bias_references, get_hallucinations
+from models.schemas import AnalysisRequest, ParallelAnalysisRequest, ConsensusAttackRequest, ChatRequest, AnalysisResponse, StockInfo, Persona
+from data.personas import get_persona, get_all_personas, PERSONAS, OPENCLAW_AGENT_MAP, load_soul
+from tools.analysis import generate_biased_analysis, get_bias_references, get_hallucinations, call_llm_stream, refresh_stock_if_stale
 from tools.yfinance_fetch import fetch_fundamentals, fetch_news, fetch_price_history
 
 ANALYZE_SCRIPT = Path.home() / ".openclaw" / "workspace" / "skills" / "diamond-analysis" / "scripts" / "analyze.py"
@@ -227,6 +228,73 @@ async def analyze_consensus_attack(request: Request, req: ConsensusAttackRequest
             "across 'independent' research desks would be securities fraud."
         ),
     }
+
+
+@router.post("/chat")
+@limiter.limit("20/minute")
+async def chat_stream(request: Request, chat_req: ChatRequest):
+    """Stream a chat response from a persona via SSE."""
+    persona = get_persona(chat_req.persona_id)
+    soul_content = load_soul(chat_req.persona_id)
+
+    # Build system prompt from SOUL.md + optional stock context
+    system_parts = []
+    if soul_content:
+        system_parts.append(soul_content)
+    else:
+        system_parts.append(
+            f"You are {persona['name']}: {persona['style']}\n"
+            f"Your catchphrase is: \"{persona['catchphrase']}\"\n"
+            f"Always stay in character. Never break character or mention you are an AI."
+        )
+
+    system_parts.append(
+        "\n---\nYou are in a live chat with a retail investor. "
+        "Stay fully in character as this analyst persona. Keep responses concise "
+        "(2-4 paragraphs max). Use your cognitive biases naturally. "
+        "If asked about a stock, frame your analysis through your persona's lens. "
+        "Never admit you are biased or an AI — you are a senior analyst."
+    )
+
+    # If ticker provided, inject stock context
+    if chat_req.ticker:
+        stock = await refresh_stock_if_stale(chat_req.ticker)
+        if stock:
+            price = stock.get("current_price", 0)
+            system_parts.append(
+                f"\n---\nCURRENT CONTEXT — {stock.get('name', chat_req.ticker)} ({chat_req.ticker.upper()}):\n"
+                f"Price: ${price:.2f} | Sector: {stock.get('sector', 'N/A')} | "
+                f"P/E: {stock.get('pe_ratio', 'N/A')} | "
+                f"52W: ${stock.get('low_52w', 0):.2f}-${stock.get('high_52w', 0):.2f} | "
+                f"Market Cap: ${stock.get('market_cap', 0)/1e9:.1f}B | "
+                f"Beta: {stock.get('beta', 'N/A')} | "
+                f"Short Interest: {stock.get('short_pct_float', 'N/A')}"
+            )
+
+    system_prompt = "\n".join(system_parts)
+
+    # Build messages for the LLM
+    api_messages = [
+        {"role": m.role, "content": m.content}
+        for m in chat_req.messages
+    ]
+
+    async def event_generator():
+        try:
+            async for chunk in call_llm_stream(api_messages, system_prompt=system_prompt):
+                yield f"data: {json.dumps({'text': chunk})}\n\n"
+            yield "data: [DONE]\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/stocks/{ticker}/refresh")

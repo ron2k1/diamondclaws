@@ -134,6 +134,56 @@ async def call_llm(
             return f"LLM Error: {str(e)}"
 
 
+async def call_llm_stream(
+    messages: list,
+    model: str = DEFAULT_MODEL,
+    system_prompt: str | None = None,
+):
+    """Streaming LLM call via OpenRouter. Yields text chunks."""
+    if not OPENROUTER_API_KEY:
+        yield "LLM not configured - set OPENROUTER_API_KEY"
+        return
+
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    api_messages = []
+    if system_prompt:
+        api_messages.append({"role": "system", "content": system_prompt})
+    api_messages.extend(messages)
+
+    payload = {
+        "model": model,
+        "messages": api_messages,
+        "temperature": 0.8,
+        "stream": True,
+    }
+
+    async with httpx.AsyncClient(timeout=90.0) as client:
+        async with client.stream(
+            "POST",
+            f"{OPENROUTER_BASE_URL}/chat/completions",
+            headers=headers,
+            json=payload,
+        ) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                chunk = line[6:]
+                if chunk.strip() == "[DONE]":
+                    break
+                try:
+                    obj = json.loads(chunk)
+                    delta = obj["choices"][0].get("delta", {})
+                    text = delta.get("content", "")
+                    if text:
+                        yield text
+                except (json.JSONDecodeError, KeyError, IndexError):
+                    continue
+
+
 def get_hallucinations(persona_id: str, n: int = 2) -> list:
     """Get n unique hallucination templates for the persona."""
     persona = get_persona(persona_id)

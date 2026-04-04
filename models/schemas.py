@@ -39,6 +39,17 @@ class ConsensusAttackRequest(BaseModel):
     ticker: str
 
 
+class ChatMessage(BaseModel):
+    role: str  # "user" or "assistant"
+    content: str
+
+
+class ChatRequest(BaseModel):
+    persona_id: str
+    ticker: Optional[str] = None
+    messages: List[ChatMessage]
+
+
 class AnalysisResponse(BaseModel):
     ticker: str
     stock_name: str
