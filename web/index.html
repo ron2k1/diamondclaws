@@ -1210,6 +1210,41 @@
         .chat-send-btn:hover { background: #5dffd4; }
         .chat-send-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
+        /* ── Settings Panel ──────────────────────────────────────── */
+        .settings-btn {
+            background: none; border: 1px solid var(--border); border-radius: 4px;
+            color: var(--text-muted); cursor: pointer; font-size: 1rem;
+            padding: 0.2rem 0.5rem; margin-left: 0.5rem; transition: all 0.2s;
+        }
+        .settings-btn:hover { color: var(--accent-green); border-color: var(--accent-green); }
+
+        .settings-panel {
+            display: none; background: var(--bg-surface); border-bottom: 1px solid var(--border);
+            padding: 1rem; font-size: 0.78rem;
+        }
+        .settings-panel.open { display: block; }
+        .settings-panel h4 { color: var(--accent-green); margin: 0 0 0.75rem; font-size: 0.85rem; }
+
+        .settings-row {
+            display: flex; align-items: center; gap: 0.75rem;
+            padding: 0.4rem 0; border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .settings-row:last-child { border-bottom: none; }
+        .settings-label { color: var(--text-secondary); min-width: 110px; font-size: 0.75rem; }
+        .settings-select {
+            flex: 1; background: var(--bg-card); color: var(--text-primary);
+            border: 1px solid var(--border); border-radius: 4px; padding: 0.35rem 0.5rem;
+            font-family: var(--font-mono); font-size: 0.73rem;
+        }
+        .settings-select:focus { border-color: var(--accent-green); outline: none; }
+        .settings-save {
+            background: var(--accent-green); color: #000; border: none; border-radius: 4px;
+            padding: 0.4rem 1rem; cursor: pointer; font-weight: 600; font-size: 0.75rem;
+            margin-top: 0.75rem;
+        }
+        .settings-save:hover { background: #5dffd4; }
+        .settings-status { color: var(--text-muted); font-size: 0.7rem; margin-left: 0.75rem; }
+
         .chat-welcome {
             text-align: center;
             padding: 2rem 1rem;
@@ -1311,6 +1346,30 @@
             <div class="chat-status">
                 <span class="chat-status-dot"></span>
                 <span>3 AGENTS LIVE</span>
+                <button class="settings-btn" id="settingsToggle" title="Model Settings">&#9881;</button>
+            </div>
+        </div>
+        <div class="settings-panel" id="settingsPanel">
+            <h4>MODEL CONFIGURATION</h4>
+            <div class="settings-row">
+                <span class="settings-label">Default Model</span>
+                <select class="settings-select" id="settingsDefaultModel"></select>
+            </div>
+            <div class="settings-row">
+                <span class="settings-label">diamond-bull</span>
+                <select class="settings-select" id="settingsModelBull"></select>
+            </div>
+            <div class="settings-row">
+                <span class="settings-label">diamond-value</span>
+                <select class="settings-select" id="settingsModelValue"></select>
+            </div>
+            <div class="settings-row">
+                <span class="settings-label">diamond-quant</span>
+                <select class="settings-select" id="settingsModelQuant"></select>
+            </div>
+            <div style="display:flex;align-items:center;margin-top:0.75rem">
+                <button class="settings-save" id="settingsSave">SAVE</button>
+                <span class="settings-status" id="settingsStatus"></span>
             </div>
         </div>
         <div class="chat-messages" id="chatMessages">
@@ -2486,6 +2545,93 @@ updateChatLabels();
 
 window.addEventListener('resize', () => {
     if (chart) chart.resize(document.getElementById('chart').clientWidth, 220);
+});
+
+/* ── Settings Panel ──────────────────────────────────────── */
+const settingsToggle = document.getElementById('settingsToggle');
+const settingsPanel = document.getElementById('settingsPanel');
+const settingsSave = document.getElementById('settingsSave');
+const settingsStatus = document.getElementById('settingsStatus');
+
+const MODEL_SELECTS = {
+    default: document.getElementById('settingsDefaultModel'),
+    'diamond-bull': document.getElementById('settingsModelBull'),
+    'diamond-value': document.getElementById('settingsModelValue'),
+    'diamond-quant': document.getElementById('settingsModelQuant'),
+};
+
+settingsToggle.addEventListener('click', () => {
+    const open = settingsPanel.classList.toggle('open');
+    if (open) loadModelSettings();
+});
+
+async function loadModelSettings() {
+    try {
+        const res = await fetch('/api/settings/models');
+        const data = await res.json();
+
+        // Collect all available models from providers
+        const allModels = [];
+        for (const [provId, prov] of Object.entries(data.providers || {})) {
+            for (const modelId of prov.models || []) {
+                const fullId = provId === 'ollama' ? `ollama/${modelId}` : `${provId}/${modelId}`;
+                allModels.push(fullId);
+            }
+        }
+        // Ensure current models are in the list
+        if (data.default_model && !allModels.includes(data.default_model)) allModels.unshift(data.default_model);
+        for (const [aid, info] of Object.entries(data.agent_models || {})) {
+            if (info.model && !allModels.includes(info.model)) allModels.unshift(info.model);
+        }
+
+        // Populate dropdowns
+        for (const [key, select] of Object.entries(MODEL_SELECTS)) {
+            select.innerHTML = '';
+            for (const m of allModels) {
+                const opt = document.createElement('option');
+                opt.value = m;
+                opt.textContent = m;
+                select.appendChild(opt);
+            }
+            // Set current value
+            if (key === 'default') {
+                select.value = data.default_model || allModels[0];
+            } else {
+                const agentInfo = data.agent_models?.[key];
+                select.value = agentInfo?.model || data.default_model || allModels[0];
+            }
+        }
+    } catch (e) {
+        settingsStatus.textContent = 'Failed to load settings';
+    }
+}
+
+settingsSave.addEventListener('click', async () => {
+    settingsStatus.textContent = 'Saving...';
+    try {
+        const body = {
+            default_model: MODEL_SELECTS.default.value,
+            agent_models: {
+                'diamond-bull': MODEL_SELECTS['diamond-bull'].value,
+                'diamond-value': MODEL_SELECTS['diamond-value'].value,
+                'diamond-quant': MODEL_SELECTS['diamond-quant'].value,
+            }
+        };
+        const res = await fetch('/api/settings/models', {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (data.ok) {
+            settingsStatus.textContent = `Saved: ${data.changed.join(', ')}`;
+            setTimeout(() => settingsStatus.textContent = '', 3000);
+        } else {
+            settingsStatus.textContent = 'Error saving';
+        }
+    } catch (e) {
+        settingsStatus.textContent = 'Failed to save';
+    }
 });
 </script>
 </body>

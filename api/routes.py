@@ -140,6 +140,83 @@ async def gateway_status(request: Request):
     return await get_gateway_status()
 
 
+@router.get("/settings/models")
+@limiter.limit("30/minute")
+async def get_model_settings(request: Request):
+    """Get current model configuration from OpenClaw config."""
+    from tools.openclaw import _load_openclaw_config, AGENT_PERSONA_MAP
+    config = _load_openclaw_config()
+    agents_cfg = config.get("agents", {})
+    default_model = agents_cfg.get("defaults", {}).get("model", {}).get("primary", "unknown")
+
+    # Per-agent models
+    agent_models = {}
+    for agent in agents_cfg.get("list", []):
+        aid = agent.get("id", "")
+        if aid.startswith("diamond-"):
+            agent_models[aid] = {
+                "model": agent.get("model", default_model),
+                "persona_id": AGENT_PERSONA_MAP.get(aid),
+            }
+
+    # Available providers from agent auth-profiles
+    providers = {}
+    models_cfg = config.get("models", {}).get("providers", {})
+    for provider_id, prov in models_cfg.items():
+        models_list = [m.get("id") for m in prov.get("models", [])]
+        if models_list:
+            providers[provider_id] = {
+                "models": models_list,
+                "base_url": prov.get("baseUrl", ""),
+            }
+
+    return {
+        "default_model": default_model,
+        "agent_models": agent_models,
+        "providers": providers,
+    }
+
+
+@router.put("/settings/models")
+@limiter.limit("10/minute")
+async def set_model_settings(request: Request):
+    """Update model configuration in the real OpenClaw config.
+
+    Body: {"default_model": "provider/model", "agent_models": {"diamond-bull": "provider/model"}}
+    Writes directly to ~/.openclaw/openclaw.json.
+    """
+    from tools.openclaw import OPENCLAW_CONFIG
+    body = await request.json()
+
+    if not OPENCLAW_CONFIG.exists():
+        raise HTTPException(status_code=404, detail="OpenClaw config not found at ~/.openclaw/openclaw.json")
+
+    config = json.loads(OPENCLAW_CONFIG.read_text(encoding="utf-8"))
+
+    changed = []
+
+    # Update default model
+    new_default = body.get("default_model")
+    if new_default and isinstance(new_default, str):
+        config.setdefault("agents", {}).setdefault("defaults", {}).setdefault("model", {})["primary"] = new_default
+        changed.append(f"default -> {new_default}")
+
+    # Update per-agent models
+    agent_models = body.get("agent_models", {})
+    if agent_models:
+        agents_list = config.get("agents", {}).get("list", [])
+        for agent in agents_list:
+            aid = agent.get("id", "")
+            if aid in agent_models:
+                agent["model"] = agent_models[aid]
+                changed.append(f"{aid} -> {agent_models[aid]}")
+
+    if changed:
+        OPENCLAW_CONFIG.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    return {"ok": True, "changed": changed}
+
+
 @router.get("/personas/{persona_id}")
 @limiter.limit("60/minute")
 async def get_persona_info(request: Request, persona_id: str):
