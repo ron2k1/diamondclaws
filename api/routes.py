@@ -19,7 +19,7 @@ from models.database import (
     get_all_stocks,
     upsert_stock,
 )
-from models.schemas import AnalysisRequest, ParallelAnalysisRequest, ConsensusAttackRequest, ChatRequest, AnalysisResponse, StockInfo, Persona
+from models.schemas import AnalysisRequest, ParallelAnalysisRequest, ConsensusAttackRequest, ChatRequest, DiscussRequest, AnalysisResponse, StockInfo, Persona
 from data.personas import get_persona, get_all_personas, PERSONAS, OPENCLAW_AGENT_MAP, load_soul
 from tools.analysis import generate_biased_analysis, get_bias_references, get_hallucinations, call_llm_stream, refresh_stock_if_stale
 from tools.yfinance_fetch import fetch_fundamentals, fetch_news, fetch_price_history
@@ -289,6 +289,138 @@ async def chat_stream(request: Request, chat_req: ChatRequest):
 
     return StreamingResponse(
         event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.post("/chat/discuss")
+@limiter.limit("10/minute")
+async def chat_discuss(request: Request, req: DiscussRequest):
+    """Orchestrate a multi-agent discussion.
+
+    Streams all 3 analysts sequentially — each one sees and reacts to the
+    previous analysts' takes, creating genuine debate and disagreement.
+    SSE events are tagged with persona_id so the frontend can render
+    each analyst's response in real-time.
+    """
+    persona_order = ["bullish_alpha", "value_contrarian", "quant_momentum"]
+
+    # Build stock context once
+    stock_context = ""
+    if req.ticker:
+        stock = await refresh_stock_if_stale(req.ticker)
+        if stock:
+            price = stock.get("current_price", 0)
+            stock_context = (
+                f"\nCURRENT DATA — {stock.get('name', req.ticker)} ({req.ticker.upper()}):\n"
+                f"Price: ${price:.2f} | Sector: {stock.get('sector', 'N/A')} | "
+                f"P/E: {stock.get('pe_ratio', 'N/A')} | "
+                f"52W: ${stock.get('low_52w', 0):.2f}-${stock.get('high_52w', 0):.2f} | "
+                f"Market Cap: ${stock.get('market_cap', 0)/1e9:.1f}B | "
+                f"Beta: {stock.get('beta', 'N/A')} | "
+                f"Revenue Growth: {stock.get('revenue_growth', 'N/A')} | "
+                f"Profit Margin: {stock.get('profit_margins', 'N/A')} | "
+                f"Short Interest: {stock.get('short_pct_float', 'N/A')} | "
+                f"Analyst Consensus: {stock.get('recommendation', 'N/A')}"
+            )
+
+    async def discussion_stream():
+        prior_takes = []  # [{name, persona_id, text}]
+
+        for i, pid in enumerate(persona_order):
+            persona = get_persona(pid)
+            soul_content = load_soul(pid)
+
+            # Build system prompt
+            system_parts = []
+            if soul_content:
+                system_parts.append(soul_content)
+            else:
+                system_parts.append(
+                    f"You are {persona['name']}: {persona['style']}\n"
+                    f"Your catchphrase is: \"{persona['catchphrase']}\"\n"
+                    f"Always stay in character."
+                )
+
+            # Discussion-specific instructions
+            if i == 0:
+                system_parts.append(
+                    "\n---\nYou are the FIRST analyst to speak in a live roundtable discussion. "
+                    "Give your thesis concisely (2-3 paragraphs). Be bold and specific with your "
+                    "conviction. Take a clear stance. End with your signature catchphrase."
+                )
+            elif i == 1:
+                system_parts.append(
+                    f"\n---\nYou are in a live roundtable discussion. Your colleague "
+                    f"{prior_takes[0]['name']} just shared their analysis (shown below). "
+                    "You MUST engage directly with their specific points — quote them, "
+                    "challenge their assumptions, point out what they're ignoring, or explain "
+                    "why their framework is wrong. Do NOT just give your own independent take. "
+                    "Be confrontational where you disagree. 2-3 paragraphs. End with your catchphrase."
+                )
+            else:
+                system_parts.append(
+                    f"\n---\nYou are in a live roundtable discussion. Two colleagues have spoken:\n"
+                    f"1. {prior_takes[0]['name']} (spoke first)\n"
+                    f"2. {prior_takes[1]['name']} (responded to #1)\n\n"
+                    "You MUST engage with BOTH perspectives. Identify the strongest and weakest "
+                    "arguments from each. Where does the quantitative data actually support or "
+                    "contradict their theses? Be specific — reference their claims and show where "
+                    "the numbers agree or disagree. Deliver your own verdict. 2-3 paragraphs. "
+                    "End with your catchphrase."
+                )
+
+            if stock_context:
+                system_parts.append(stock_context)
+
+            system_prompt = "\n".join(system_parts)
+
+            # Build messages: prior analysts' takes + user question
+            api_messages = []
+
+            # Include prior discussion context if this is a follow-up round
+            if req.prior_discussion:
+                for m in req.prior_discussion:
+                    api_messages.append({"role": m.role, "content": m.content})
+
+            # Include earlier analysts' takes from THIS round
+            for take in prior_takes:
+                api_messages.append({
+                    "role": "user",
+                    "content": f"[{take['name']}]: {take['text']}"
+                })
+
+            # The user's question
+            api_messages.append({"role": "user", "content": req.message})
+
+            # Signal persona start
+            yield f"data: {json.dumps({'type': 'persona_start', 'persona_id': pid, 'name': persona['name']})}\n\n"
+
+            # Stream this persona's response
+            full_text = ""
+            try:
+                async for chunk in call_llm_stream(api_messages, system_prompt=system_prompt):
+                    full_text += chunk
+                    yield f"data: {json.dumps({'type': 'token', 'persona_id': pid, 'text': chunk})}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'type': 'error', 'persona_id': pid, 'error': str(e)})}\n\n"
+
+            yield f"data: {json.dumps({'type': 'persona_done', 'persona_id': pid})}\n\n"
+
+            prior_takes.append({
+                "persona_id": pid,
+                "name": persona["name"],
+                "text": full_text,
+            })
+
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        discussion_stream(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

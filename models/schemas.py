@@ -50,6 +50,12 @@ class ChatRequest(BaseModel):
     messages: List[ChatMessage]
 
 
+class DiscussRequest(BaseModel):
+    ticker: Optional[str] = None
+    message: str
+    prior_discussion: Optional[List[ChatMessage]] = None
+
+
 class AnalysisResponse(BaseModel):
     ticker: str
     stock_name: str

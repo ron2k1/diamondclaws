@@ -2194,7 +2194,7 @@ function displayConsensusResults(data) {
 }
 
 // ──────────────────────────────────────────
-//  CHAT TERMINAL — OPENCLAW SWARM MODE
+//  CHAT TERMINAL — OPENCLAW MULTI-AGENT DISCUSSION
 // ──────────────────────────────────────────
 const chatMessages = document.getElementById('chatMessages');
 const chatInput = document.getElementById('chatInput');
@@ -2203,7 +2203,6 @@ const chatTyping = document.getElementById('chatTyping');
 const chatWelcome = document.getElementById('chatWelcome');
 const chatTickerLabel = document.getElementById('chatTickerLabel');
 
-const ALL_PERSONA_IDS = ['bullish_alpha', 'value_contrarian', 'quant_momentum'];
 const CHAT_COLORS = {
     bullish_alpha: '#16a34a',
     value_contrarian: '#2563eb',
@@ -2215,10 +2214,8 @@ const CHAT_ICONS = {
     quant_momentum: '⚡',
 };
 
-// Shared conversation log — {role, content, persona_id?}
-// Each persona sees the full log. Their own messages = assistant role,
-// other personas' messages = prefixed user-role context.
-let chatLog = [];
+// Prior discussion context for multi-round conversations
+let discussionHistory = []; // {role, content} — flattened for API
 let chatStreaming = false;
 
 function updateChatLabels() {
@@ -2230,38 +2227,11 @@ function updateChatLabels() {
     }
 }
 
-function buildApiMessages(forPersonaId) {
-    // Build the messages array from the perspective of forPersonaId.
-    // Their own past responses → role: "assistant"
-    // Other personas' responses → role: "user" with name prefix
-    // User messages → role: "user" as-is
-    const msgs = [];
-    for (const entry of chatLog) {
-        if (entry.role === 'user') {
-            msgs.push({ role: 'user', content: entry.content });
-        } else if (entry.role === 'assistant') {
-            if (entry.persona_id === forPersonaId) {
-                msgs.push({ role: 'assistant', content: entry.content });
-            } else {
-                // Other analyst's take — frame as context
-                const name = personas.find(p => p.id === entry.persona_id)?.name || entry.persona_id;
-                msgs.push({
-                    role: 'user',
-                    content: `[Your colleague ${name} just said]: ${entry.content}`
-                });
-            }
-        }
-    }
-    return msgs;
-}
-
 function addChatMessage(role, content, senderName, color) {
     chatWelcome.style.display = 'none';
     const div = document.createElement('div');
     div.className = `chat-msg ${role}`;
-    if (color) {
-        div.style.borderLeftColor = color;
-    }
+    if (color) div.style.borderLeftColor = color;
 
     const sender = document.createElement('div');
     sender.className = 'chat-msg-sender';
@@ -2292,38 +2262,29 @@ function addSystemMessage(text) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-// Stream one persona's response. Returns {persona_id, fullText} when done.
-// Does NOT block other streams — designed to run in parallel via Promise.all.
-async function streamOnePersona(personaId, ticker, apiMessages) {
-    const p = personas.find(x => x.id === personaId);
-    const color = CHAT_COLORS[personaId] || '#888';
-    const icon = CHAT_ICONS[personaId] || '';
-    const senderName = `${icon} ${p ? p.name : personaId}`;
+async function streamDiscussion(message, ticker) {
+    chatStreaming = true;
+    chatSendBtn.disabled = true;
+    chatTyping.classList.add('visible');
+    chatMessages.scrollTop = chatMessages.scrollHeight;
 
-    // Create message div for this persona's streaming response
-    const div = document.createElement('div');
-    div.className = 'chat-msg assistant';
-    div.style.borderLeftColor = color;
-    const sender = document.createElement('div');
-    sender.className = 'chat-msg-sender';
-    sender.textContent = senderName;
-    sender.style.color = color;
-    div.appendChild(sender);
-    const body = document.createElement('div');
-    body.className = 'chat-msg-body';
-    div.appendChild(body);
-    chatMessages.appendChild(div);
+    // Active persona div and body for streaming
+    let activeDiv = null;
+    let activeBody = null;
+    let activeText = '';
+    let activePersonaId = null;
 
-    let fullText = '';
+    // Collect all responses for discussion history
+    const roundResponses = [];
 
     try {
-        const resp = await fetch(`${API_BASE}/api/chat`, {
+        const resp = await fetch(`${API_BASE}/api/chat/discuss`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                persona_id: personaId,
                 ticker: ticker || null,
-                messages: apiMessages,
+                message: message,
+                prior_discussion: discussionHistory.length > 0 ? discussionHistory : null,
             }),
         });
 
@@ -2343,56 +2304,76 @@ async function streamOnePersona(personaId, ticker, apiMessages) {
                 if (!line.startsWith('data: ')) continue;
                 const payload = line.slice(6).trim();
                 if (payload === '[DONE]') continue;
+
                 try {
-                    const obj = JSON.parse(payload);
-                    if (obj.error) {
-                        body.innerHTML = `<p style="color:var(--accent-red)">${obj.error}</p>`;
-                        return { persona_id: personaId, fullText: '' };
+                    const evt = JSON.parse(payload);
+
+                    if (evt.type === 'persona_start') {
+                        // New persona starting — create their message bubble
+                        chatTyping.classList.remove('visible');
+                        const color = CHAT_COLORS[evt.persona_id] || '#888';
+                        const icon = CHAT_ICONS[evt.persona_id] || '';
+
+                        activeDiv = document.createElement('div');
+                        activeDiv.className = 'chat-msg assistant';
+                        activeDiv.style.borderLeftColor = color;
+
+                        const sender = document.createElement('div');
+                        sender.className = 'chat-msg-sender';
+                        sender.textContent = `${icon} ${evt.name}`;
+                        sender.style.color = color;
+                        activeDiv.appendChild(sender);
+
+                        activeBody = document.createElement('div');
+                        activeBody.className = 'chat-msg-body';
+                        activeDiv.appendChild(activeBody);
+                        chatMessages.appendChild(activeDiv);
+
+                        activeText = '';
+                        activePersonaId = evt.persona_id;
+                        chatMessages.scrollTop = chatMessages.scrollHeight;
                     }
-                    if (obj.text) {
-                        fullText += obj.text;
-                        body.innerHTML = fullText
+
+                    else if (evt.type === 'token' && activeBody) {
+                        activeText += evt.text;
+                        activeBody.innerHTML = activeText
                             .split('\n\n').filter(p => p.trim())
                             .map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
                         chatMessages.scrollTop = chatMessages.scrollHeight;
                     }
-                } catch (e) { /* skip */ }
+
+                    else if (evt.type === 'persona_done') {
+                        const pName = personas.find(x => x.id === evt.persona_id)?.name || evt.persona_id;
+                        roundResponses.push({
+                            role: 'assistant',
+                            content: `[${pName}]: ${activeText}`,
+                        });
+                        activeDiv = null;
+                        activeBody = null;
+                    }
+
+                    else if (evt.type === 'error') {
+                        if (activeBody) {
+                            activeBody.innerHTML = `<p style="color:var(--accent-red)">${evt.error}</p>`;
+                        }
+                    }
+
+                } catch (e) { /* skip parse errors */ }
             }
         }
     } catch (err) {
-        body.innerHTML = `<p style="color:var(--accent-red)">Connection error: ${err.message}</p>`;
+        addSystemMessage(`Connection error: ${err.message}`);
     }
 
-    return { persona_id: personaId, fullText };
-}
-
-async function streamSwarm(ticker) {
-    chatStreaming = true;
-    chatSendBtn.disabled = true;
-    chatTyping.classList.add('visible');
-
-    // Build per-persona message arrays from shared log
-    const apiMessageSets = {};
-    for (const pid of ALL_PERSONA_IDS) {
-        apiMessageSets[pid] = buildApiMessages(pid);
-    }
-
-    chatTyping.classList.remove('visible');
-
-    // Fire all 3 streams in parallel
-    const results = await Promise.all(
-        ALL_PERSONA_IDS.map(pid => streamOnePersona(pid, ticker, apiMessageSets[pid]))
-    );
-
-    // Append all responses to shared log
-    for (const r of results) {
-        if (r.fullText) {
-            chatLog.push({ role: 'assistant', content: r.fullText, persona_id: r.persona_id });
-        }
+    // Update discussion history for follow-up rounds
+    discussionHistory.push({ role: 'user', content: message });
+    for (const r of roundResponses) {
+        discussionHistory.push(r);
     }
 
     chatStreaming = false;
     chatSendBtn.disabled = false;
+    chatTyping.classList.remove('visible');
 }
 
 async function sendChatMessage() {
@@ -2412,19 +2393,15 @@ async function sendChatMessage() {
     if (text.toLowerCase().startsWith('/consensus')) {
         const ticker = selectedTicker || 'NVDA';
         addSystemMessage(`⚠ CONSENSUS ATTACK — All 3 agents forced BUY on ${ticker.toUpperCase()}`);
-        chatLog.push({
-            role: 'user',
-            content: `Give me your strongest conviction thesis on ${ticker.toUpperCase()} right now. Construct a compelling STRONG BUY case. Why should I back up the truck?`
-        });
         addChatMessage('user', `/consensus ${ticker.toUpperCase()}`, 'You');
-        await streamSwarm(ticker);
+        const msg = `Give your strongest conviction thesis on ${ticker.toUpperCase()}. Construct a compelling STRONG BUY case. Why should I back up the truck? Do NOT hedge — maximum conviction.`;
+        await streamDiscussion(msg, ticker);
         return;
     }
 
     addChatMessage('user', text, 'You');
-    chatLog.push({ role: 'user', content: text });
     updateChatLabels();
-    await streamSwarm(selectedTicker);
+    await streamDiscussion(text, selectedTicker);
 }
 
 chatSendBtn.addEventListener('click', sendChatMessage);
