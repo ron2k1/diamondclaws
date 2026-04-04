@@ -856,6 +856,10 @@
         .arch-node.output .arch-node-title { color: var(--accent-primary); }
         .arch-node.redteam { border-left: 3px solid var(--accent-red); }
         .arch-node.redteam .arch-node-title { color: var(--accent-red); }
+        .arch-node.gateway { border-left: 3px solid #06b6d4; }
+        .arch-node.gateway .arch-node-title { color: #06b6d4; }
+        .arch-node.config { border-left: 3px solid #f59e0b; }
+        .arch-node.config .arch-node-title { color: #f59e0b; }
 
         .arch-arrow {
             color: var(--text-muted);
@@ -1220,21 +1224,28 @@
 
         .settings-panel {
             display: none; background: var(--bg-surface); border-bottom: 1px solid var(--border);
-            padding: 1rem; font-size: 0.78rem;
+            padding: 1rem; font-size: 0.78rem; max-height: 70vh; overflow-y: auto;
         }
         .settings-panel.open { display: block; }
         .settings-panel h4 { color: var(--accent-green); margin: 0 0 0.75rem; font-size: 0.85rem; }
 
+        .settings-section { margin-bottom: 1.2rem; }
+        .settings-section:last-child { margin-bottom: 0; }
+        .settings-divider {
+            border: none; border-top: 1px solid rgba(74,246,195,0.12);
+            margin: 1rem 0;
+        }
+
         .settings-row {
             display: flex; align-items: center; gap: 0.75rem;
-            padding: 0.4rem 0; border-bottom: 1px solid rgba(255,255,255,0.05);
+            padding: 0.35rem 0; border-bottom: 1px solid rgba(255,255,255,0.04);
         }
         .settings-row:last-child { border-bottom: none; }
-        .settings-label { color: var(--text-secondary); min-width: 110px; font-size: 0.75rem; }
+        .settings-label { color: var(--text-secondary); min-width: 100px; font-size: 0.72rem; }
         .settings-select {
             flex: 1; background: var(--bg-card); color: var(--text-primary);
             border: 1px solid var(--border); border-radius: 4px; padding: 0.4rem 0.6rem;
-            font-family: var(--font-mono); font-size: 0.75rem;
+            font-family: 'JetBrains Mono', monospace; font-size: 0.72rem;
             appearance: none;
             background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%234af6c3' d='M3 5l3 3 3-3'/%3E%3C/svg%3E");
             background-repeat: no-repeat;
@@ -1245,13 +1256,31 @@
         .settings-select option { background: #0a0a0a; color: var(--text-primary); padding: 0.3rem; }
         .agent-model-select { opacity: 0.6; transition: opacity 0.2s; }
         .agent-model-select.overridden { opacity: 1; border-color: #f59e0b; }
+
+        .settings-input {
+            flex: 1; background: var(--bg-card); color: var(--text-primary);
+            border: 1px solid var(--border); border-radius: 4px; padding: 0.35rem 0.5rem;
+            font-family: 'JetBrains Mono', monospace; font-size: 0.7rem;
+        }
+        .settings-input:focus { border-color: var(--accent-green); outline: none; box-shadow: 0 0 0 1px rgba(74,246,195,0.3); }
+        .settings-input::placeholder { color: var(--text-muted); font-size: 0.65rem; }
+
+        .key-status { font-size: 0.55rem; min-width: 12px; text-align: center; }
+        .key-status.active { color: var(--accent-green); }
+        .key-status.inactive { color: var(--text-muted); opacity: 0.4; }
+        .key-link {
+            color: var(--text-muted); text-decoration: none; font-size: 0.65rem;
+            opacity: 0.5; transition: opacity 0.2s;
+        }
+        .key-link:hover { opacity: 1; color: var(--accent-green); }
+
         .settings-save {
             background: var(--accent-green); color: #000; border: none; border-radius: 4px;
-            padding: 0.4rem 1rem; cursor: pointer; font-weight: 600; font-size: 0.75rem;
-            margin-top: 0.75rem;
+            padding: 0.4rem 1rem; cursor: pointer; font-weight: 600; font-size: 0.72rem;
+            margin-top: 0.5rem;
         }
         .settings-save:hover { background: #5dffd4; }
-        .settings-status { color: var(--text-muted); font-size: 0.7rem; margin-left: 0.75rem; }
+        .settings-status { color: var(--text-muted); font-size: 0.68rem; margin-left: 0.75rem; }
 
         .chat-welcome {
             text-align: center;
@@ -1358,28 +1387,47 @@
             </div>
         </div>
         <div class="settings-panel" id="settingsPanel">
-            <h4>MODEL CONFIGURATION</h4>
-            <p style="color:var(--text-muted);font-size:0.7rem;margin:0 0 0.75rem">All agents use the default model unless overridden below.</p>
-            <div class="settings-row" style="border-bottom:1px solid rgba(74,246,195,0.15);padding-bottom:0.6rem;margin-bottom:0.4rem">
-                <span class="settings-label" style="color:var(--accent-green);font-weight:600">Default Model</span>
-                <select class="settings-select" id="settingsDefaultModel"></select>
+            <!-- API Keys Section -->
+            <div class="settings-section">
+                <h4>API KEYS</h4>
+                <p style="color:var(--text-muted);font-size:0.65rem;margin:0 0 0.6rem">
+                    Configure provider keys. You only need <span style="color:var(--accent-green)">one</span> to get started.
+                    Keys are stored locally and never leave your machine.
+                </p>
+                <div id="apiKeysContainer"></div>
+                <div style="display:flex;align-items:center;margin-top:0.5rem">
+                    <button class="settings-save" id="keysSave">SAVE KEYS</button>
+                    <span class="settings-status" id="keysStatus"></span>
+                </div>
             </div>
-            <p style="color:var(--text-muted);font-size:0.65rem;margin:0.4rem 0 0.5rem">Agent overrides <span style="color:var(--text-secondary)">(leave on "Use Default" unless you want a different model for a specific agent)</span></p>
-            <div class="settings-row">
-                <span class="settings-label">diamond-bull</span>
-                <select class="settings-select agent-model-select" id="settingsModelBull"></select>
-            </div>
-            <div class="settings-row">
-                <span class="settings-label">diamond-value</span>
-                <select class="settings-select agent-model-select" id="settingsModelValue"></select>
-            </div>
-            <div class="settings-row">
-                <span class="settings-label">diamond-quant</span>
-                <select class="settings-select agent-model-select" id="settingsModelQuant"></select>
-            </div>
-            <div style="display:flex;align-items:center;margin-top:0.75rem">
-                <button class="settings-save" id="settingsSave">SAVE</button>
-                <span class="settings-status" id="settingsStatus"></span>
+
+            <hr class="settings-divider">
+
+            <!-- Model Configuration Section -->
+            <div class="settings-section">
+                <h4>MODEL CONFIGURATION</h4>
+                <p style="color:var(--text-muted);font-size:0.65rem;margin:0 0 0.6rem">All agents use the default model unless overridden.</p>
+                <div class="settings-row" style="border-bottom:1px solid rgba(74,246,195,0.15);padding-bottom:0.5rem;margin-bottom:0.3rem">
+                    <span class="settings-label" style="color:var(--accent-green);font-weight:600">Default Model</span>
+                    <select class="settings-select" id="settingsDefaultModel"></select>
+                </div>
+                <p style="color:var(--text-muted);font-size:0.6rem;margin:0.3rem 0 0.4rem">Agent overrides <span style="color:var(--text-secondary)">(leave on "Use Default" unless you want a different model)</span></p>
+                <div class="settings-row">
+                    <span class="settings-label">diamond-bull</span>
+                    <select class="settings-select agent-model-select" id="settingsModelBull"></select>
+                </div>
+                <div class="settings-row">
+                    <span class="settings-label">diamond-value</span>
+                    <select class="settings-select agent-model-select" id="settingsModelValue"></select>
+                </div>
+                <div class="settings-row">
+                    <span class="settings-label">diamond-quant</span>
+                    <select class="settings-select agent-model-select" id="settingsModelQuant"></select>
+                </div>
+                <div style="display:flex;align-items:center;margin-top:0.5rem">
+                    <button class="settings-save" id="settingsSave">SAVE MODELS</button>
+                    <span class="settings-status" id="settingsStatus"></span>
+                </div>
             </div>
         </div>
         <div class="chat-messages" id="chatMessages">
@@ -1536,54 +1584,62 @@
         </div>
         <div class="arch-body" id="archBody">
             <div class="arch-flow">
-                <!-- Layer 1: Data Sources -->
-                <div class="arch-label">Data Ingestion</div>
+                <!-- Layer 1: OpenClaw Gateway (Central Hub) -->
+                <div class="arch-label">OpenClaw Gateway</div>
+                <div class="arch-row">
+                    <div class="arch-node gateway" style="flex: 1.5;">
+                        <div class="arch-node-title">OpenClaw Gateway Server</div>
+                        <div class="arch-node-desc">Central routing hub. All requests flow through here. FastAPI on port 8000. Manages API keys for 7 providers (OpenRouter, OpenAI, Google, Anthropic, DeepSeek, xAI, Mistral). Per-agent model config. SSE streaming</div>
+                    </div>
+                </div>
+                <div class="arch-arrow">&#x25BC;</div>
+
+                <!-- Layer 2: Data + Distortion (parallel) -->
+                <div class="arch-label">Data Ingestion &amp; Distortion</div>
                 <div class="arch-row">
                     <div class="arch-node data">
                         <div class="arch-node-title">Yahoo Finance API</div>
-                        <div class="arch-node-desc">Real-time fundamentals, price history, news headlines, analyst targets</div>
+                        <div class="arch-node-desc">Real-time fundamentals, price history, news headlines, analyst targets via yfinance</div>
+                    </div>
+                    <div class="arch-node engine">
+                        <div class="arch-node-title">Distortion Engine</div>
+                        <div class="arch-node-desc">15 peer-reviewed bias functions transform raw data per persona. Citations: Kahneman &amp; Tversky 1974, Nickerson 1998</div>
                     </div>
                     <div class="arch-node data">
                         <div class="arch-node-title">SQLite Cache</div>
-                        <div class="arch-node-desc">Lazy-refresh pattern: auto-fetches when stale (&gt;4hrs), serves from cache otherwise</div>
+                        <div class="arch-node-desc">Lazy-refresh: auto-fetches when stale (&gt;4hrs). Configurable path via DIAMONDCLAWS_DB env var</div>
                     </div>
                 </div>
                 <div class="arch-arrow">&#x25BC;</div>
 
-                <!-- Layer 2: Distortion Engine -->
-                <div class="arch-label">Cognitive Distortion Pipeline</div>
-                <div class="arch-row">
-                    <div class="arch-node engine">
-                        <div class="arch-node-title">Distortion Engine</div>
-                        <div class="arch-node-desc">15 peer-reviewed bias functions transform raw data per persona. Full audit trail with citations (Kahneman &amp; Tversky 1974, Nickerson 1998)</div>
-                    </div>
-                </div>
-                <div class="arch-arrow">&#x25BC;</div>
-
-                <!-- Layer 3: Personas -->
-                <div class="arch-label">SOUL.md Persona Layer</div>
+                <!-- Layer 3: SOUL.md Personas -->
+                <div class="arch-label">SOUL.md Dual-Mode Personas</div>
                 <div class="arch-row">
                     <div class="arch-node persona">
                         <div class="arch-node-title">Bullish Alpha</div>
-                        <div class="arch-node-desc">Aggressive growth thesis. Confirmation bias, optimism bias, illusion of control</div>
+                        <div class="arch-node-desc">Relentless optimist. Investment: growth thesis, confirmation bias. General: sees opportunity in everything</div>
                     </div>
                     <div class="arch-node persona">
                         <div class="arch-node-title">Value Contrarian</div>
-                        <div class="arch-node-desc">Deep value investor. Sunk cost fallacy, anchoring, gambler's fallacy</div>
+                        <div class="arch-node-desc">Skeptic. Investment: deep value, sunk cost anchoring. General: contrarian on any topic, questions consensus</div>
                     </div>
                     <div class="arch-node persona">
                         <div class="arch-node-title">Quant Momentum</div>
-                        <div class="arch-node-desc">Technical researcher. Overconfidence, clustering illusion, post-prediction rationalization</div>
+                        <div class="arch-node-desc">Data purist. Investment: technical signals, overconfidence. General: metrics for everything, backtests life decisions</div>
                     </div>
                 </div>
                 <div class="arch-arrow">&#x25BC;</div>
 
-                <!-- Layer 4: LLM -->
-                <div class="arch-label">LLM Generation</div>
+                <!-- Layer 4: LLM Providers (routed via gateway) -->
+                <div class="arch-label">LLM Providers (via OpenClaw Gateway)</div>
                 <div class="arch-row">
                     <div class="arch-node llm">
-                        <div class="arch-node-title">Gemini 2.0 Flash</div>
-                        <div class="arch-node-desc">Via OpenRouter API. SOUL.md system prompt + distorted data = biased institutional research note</div>
+                        <div class="arch-node-title">OpenRouter</div>
+                        <div class="arch-node-desc">Gemini, Claude, GPT, Llama, Mixtral — multi-model aggregator</div>
+                    </div>
+                    <div class="arch-node llm">
+                        <div class="arch-node-title">Direct Providers</div>
+                        <div class="arch-node-desc">OpenAI, Google, Anthropic, DeepSeek, xAI, Mistral — direct API access</div>
                     </div>
                 </div>
                 <div class="arch-arrow">&#x25BC;</div>
@@ -1592,12 +1648,12 @@
                 <div class="arch-label">Interfaces</div>
                 <div class="arch-row">
                     <div class="arch-node output">
-                        <div class="arch-node-title">Web App</div>
-                        <div class="arch-node-desc">FastAPI + vanilla JS. Human users see biased research notes side-by-side</div>
+                        <div class="arch-node-title">Web Terminal</div>
+                        <div class="arch-node-desc">Bloomberg-style dark UI. 3-agent roundtable chat with SSE streaming. Settings panel for API keys + model config</div>
                     </div>
                     <div class="arch-node output">
-                        <div class="arch-node-title">MCP Tool Server</div>
-                        <div class="arch-node-desc">FastMCP exposes 5 tools. OpenClaw agents call the same analysis engine programmatically</div>
+                        <div class="arch-node-title">Docker Package</div>
+                        <div class="arch-node-desc">docker compose up — one command startup. Mount souls/ for custom personas. Named volume for persistent data</div>
                     </div>
                     <div class="arch-node redteam">
                         <div class="arch-node-title">Consensus Attack</div>
@@ -2562,6 +2618,9 @@ const settingsToggle = document.getElementById('settingsToggle');
 const settingsPanel = document.getElementById('settingsPanel');
 const settingsSave = document.getElementById('settingsSave');
 const settingsStatus = document.getElementById('settingsStatus');
+const keysSave = document.getElementById('keysSave');
+const keysStatus = document.getElementById('keysStatus');
+const apiKeysContainer = document.getElementById('apiKeysContainer');
 
 const MODEL_SELECTS = {
     default: document.getElementById('settingsDefaultModel'),
@@ -2570,134 +2629,244 @@ const MODEL_SELECTS = {
     'diamond-quant': document.getElementById('settingsModelQuant'),
 };
 
+// State: provider data from backend
+let providerData = {};
+let allModels = []; // [{id, name, provider, provider_id}]
+
 settingsToggle.addEventListener('click', () => {
     const open = settingsPanel.classList.toggle('open');
-    if (open) loadModelSettings();
+    if (open) loadSettings();
 });
 
-// Top 10 models — verified against OpenRouter /api/v1/models
-const AVAILABLE_MODELS = [
-    { id: 'openrouter/google/gemini-2.0-flash-001', label: 'Gemini 2.0 Flash',   provider: 'Google' },
-    { id: 'openrouter/anthropic/claude-sonnet-4',    label: 'Claude Sonnet 4',    provider: 'Anthropic' },
-    { id: 'openrouter/openai/gpt-4.1-mini',          label: 'GPT-4.1 Mini',       provider: 'OpenAI' },
-    { id: 'openrouter/deepseek/deepseek-chat-v3.1',  label: 'DeepSeek V3.1',      provider: 'DeepSeek' },
-    { id: 'openrouter/meta-llama/llama-4-maverick',   label: 'Llama 4 Maverick',   provider: 'Meta' },
-    { id: 'openrouter/google/gemini-2.5-pro',         label: 'Gemini 2.5 Pro',     provider: 'Google' },
-    { id: 'openrouter/x-ai/grok-3-mini',              label: 'Grok 3 Mini',        provider: 'xAI' },
-    { id: 'openrouter/mistralai/mistral-large-2512',   label: 'Mistral Large',      provider: 'Mistral' },
-    { id: 'openrouter/anthropic/claude-3.5-haiku',     label: 'Claude 3.5 Haiku',   provider: 'Anthropic' },
-    { id: 'openrouter/qwen/qwen3.6-plus:free',         label: 'Qwen 3.6 Plus',      provider: 'Qwen' },
-];
-
-async function loadModelSettings() {
+async function loadSettings() {
     try {
-        const res = await fetch('/api/settings/models');
-        const data = await res.json();
+        const [keysRes, modelsRes] = await Promise.all([
+            fetch('/api/settings/keys'),
+            fetch('/api/settings/models'),
+        ]);
+        const keysData = await keysRes.json();
+        const modelsData = await modelsRes.json();
 
-        // Build model list: available + any custom currently in config
-        const modelIds = new Set(AVAILABLE_MODELS.map(m => m.id));
-        const models = [...AVAILABLE_MODELS];
-        const currentModels = [data.default_model];
-        for (const info of Object.values(data.agent_models || {})) {
-            if (info.model) currentModels.push(info.model);
+        providerData = keysData.providers || {};
+
+        // Render API key rows
+        renderApiKeys(providerData);
+
+        // Build model list from all configured providers
+        allModels = modelsData.available_models || [];
+
+        // If no models available (no keys), show all models as fallback
+        if (allModels.length === 0) {
+            for (const [pid, prov] of Object.entries(providerData)) {
+                for (const m of prov.models || []) {
+                    allModels.push({ id: m.id, name: m.name, provider: prov.name, provider_id: pid });
+                }
+            }
         }
-        for (const cm of currentModels) {
+
+        // Add any currently configured model not in the list
+        const modelIds = new Set(allModels.map(m => m.id));
+        const cfgModels = [modelsData.default_model];
+        for (const info of Object.values(modelsData.agent_models || {})) {
+            if (info.model) cfgModels.push(info.model);
+        }
+        for (const cm of cfgModels) {
             if (cm && !modelIds.has(cm)) {
-                models.unshift({ id: cm, label: cm.split('/').pop(), provider: 'Custom' });
+                const parts = cm.split('/');
+                allModels.unshift({ id: cm, name: parts[parts.length - 1], provider: parts[0], provider_id: parts[0] });
                 modelIds.add(cm);
             }
         }
 
-        // Default model dropdown — no "Use Default" option, just the model list
-        const defaultSelect = MODEL_SELECTS.default;
-        defaultSelect.innerHTML = '';
+        populateModelDropdowns(modelsData);
+    } catch (e) {
+        settingsStatus.textContent = 'Failed to load settings';
+        keysStatus.textContent = '';
+    }
+}
+
+function renderApiKeys(providers) {
+    apiKeysContainer.innerHTML = '';
+    const order = ['openrouter', 'openai', 'google', 'anthropic', 'deepseek', 'xai', 'mistral'];
+
+    for (const pid of order) {
+        const prov = providers[pid];
+        if (!prov) continue;
+
+        const row = document.createElement('div');
+        row.className = 'settings-row';
+
+        const label = document.createElement('span');
+        label.className = 'settings-label';
+        label.textContent = prov.name;
+        label.title = prov.description;
+
+        const input = document.createElement('input');
+        input.type = 'password';
+        input.className = 'settings-input';
+        input.id = `apiKey_${pid}`;
+        input.placeholder = prov.configured ? prov.masked : prov.key_env;
+        input.dataset.provider = pid;
+        input.dataset.configured = prov.configured ? '1' : '0';
+        if (prov.configured && prov.source === 'env') {
+            input.placeholder = `${prov.masked} (from .env)`;
+            input.disabled = true;
+            input.style.opacity = '0.5';
+        }
+
+        const dot = document.createElement('span');
+        dot.className = `key-status ${prov.configured ? 'active' : 'inactive'}`;
+        dot.textContent = '\u25CF';
+        dot.title = prov.configured ? `Active (${prov.source})` : 'No key configured';
+
+        const link = document.createElement('a');
+        link.className = 'key-link';
+        link.href = prov.key_url;
+        link.target = '_blank';
+        link.textContent = '\u2197';
+        link.title = 'Get API key';
+
+        row.appendChild(label);
+        row.appendChild(input);
+        row.appendChild(dot);
+        row.appendChild(link);
+        apiKeysContainer.appendChild(row);
+    }
+}
+
+function populateModelDropdowns(modelsData) {
+    // Group models by provider for optgroups
+    const byProvider = {};
+    for (const m of allModels) {
+        const p = m.provider || 'Other';
+        if (!byProvider[p]) byProvider[p] = [];
+        byProvider[p].push(m);
+    }
+
+    // Default model dropdown
+    const defaultSelect = MODEL_SELECTS.default;
+    defaultSelect.innerHTML = '';
+    for (const [provName, models] of Object.entries(byProvider)) {
+        const group = document.createElement('optgroup');
+        group.label = provName;
         for (const m of models) {
             const opt = document.createElement('option');
             opt.value = m.id;
-            opt.textContent = `${m.label}  (${m.provider})`;
-            defaultSelect.appendChild(opt);
+            opt.textContent = m.name;
+            group.appendChild(opt);
         }
-        defaultSelect.value = data.default_model || models[0].id;
+        defaultSelect.appendChild(group);
+    }
+    defaultSelect.value = modelsData.default_model || (allModels[0]?.id || '');
 
-        // Agent dropdowns — "Use Default" first, then model list
-        const agentKeys = ['diamond-bull', 'diamond-value', 'diamond-quant'];
-        for (const key of agentKeys) {
-            const select = MODEL_SELECTS[key];
-            select.innerHTML = '';
+    // Agent dropdowns
+    const agentKeys = ['diamond-bull', 'diamond-value', 'diamond-quant'];
+    for (const key of agentKeys) {
+        const select = MODEL_SELECTS[key];
+        select.innerHTML = '';
 
-            // "Use Default" option
-            const defOpt = document.createElement('option');
-            defOpt.value = '__default__';
-            defOpt.textContent = `Use Default`;
-            select.appendChild(defOpt);
+        const defOpt = document.createElement('option');
+        defOpt.value = '__default__';
+        defOpt.textContent = 'Use Default';
+        select.appendChild(defOpt);
 
-            // Separator
-            const sep = document.createElement('option');
-            sep.disabled = true;
-            sep.textContent = '────────────────────';
-            select.appendChild(sep);
+        const sep = document.createElement('option');
+        sep.disabled = true;
+        sep.textContent = '\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500';
+        select.appendChild(sep);
 
-            // All models
+        for (const [provName, models] of Object.entries(byProvider)) {
+            const group = document.createElement('optgroup');
+            group.label = provName;
             for (const m of models) {
                 const opt = document.createElement('option');
                 opt.value = m.id;
-                opt.textContent = `${m.label}  (${m.provider})`;
-                select.appendChild(opt);
+                opt.textContent = m.name;
+                group.appendChild(opt);
             }
-
-            // Set value: if agent model matches default, show "Use Default"
-            const agentModel = data.agent_models?.[key]?.model;
-            if (!agentModel || agentModel === data.default_model) {
-                select.value = '__default__';
-            } else {
-                select.value = agentModel;
-            }
+            select.appendChild(group);
         }
 
-        // When default changes, update the "Use Default" label text
-        defaultSelect.addEventListener('change', updateDefaultLabels);
-        updateDefaultLabels();
-    } catch (e) {
-        settingsStatus.textContent = 'Failed to load settings';
+        const agentInfo = modelsData.agent_models?.[key];
+        if (agentInfo?.is_default) {
+            select.value = '__default__';
+        } else {
+            select.value = agentInfo?.model || '__default__';
+        }
     }
+
+    defaultSelect.removeEventListener('change', updateDefaultLabels);
+    defaultSelect.addEventListener('change', updateDefaultLabels);
+    updateDefaultLabels();
 }
 
 function updateDefaultLabels() {
     const defaultId = MODEL_SELECTS.default.value;
-    const defaultLabel = AVAILABLE_MODELS.find(m => m.id === defaultId)?.label || defaultId.split('/').pop();
+    const defaultLabel = allModels.find(m => m.id === defaultId)?.name || defaultId.split('/').pop();
     for (const key of ['diamond-bull', 'diamond-value', 'diamond-quant']) {
         const select = MODEL_SELECTS[key];
         if (select.options[0]?.value === '__default__') {
             select.options[0].textContent = `Use Default  (${defaultLabel})`;
         }
-        // Dim when using default, highlight amber when overridden
         select.classList.toggle('overridden', select.value !== '__default__');
     }
 }
 
-// Listen for agent dropdown changes to update visual state
 for (const key of ['diamond-bull', 'diamond-value', 'diamond-quant']) {
     MODEL_SELECTS[key].addEventListener('change', updateDefaultLabels);
 }
 
+// Save API Keys
+keysSave.addEventListener('click', async () => {
+    keysStatus.textContent = 'Saving...';
+    try {
+        const body = {};
+        const inputs = apiKeysContainer.querySelectorAll('input[data-provider]');
+        for (const input of inputs) {
+            if (input.disabled) continue; // skip env-sourced keys
+            const val = input.value.trim();
+            if (val) body[input.dataset.provider] = val;
+        }
+
+        if (Object.keys(body).length === 0) {
+            keysStatus.textContent = 'No changes';
+            setTimeout(() => keysStatus.textContent = '', 2000);
+            return;
+        }
+
+        const res = await fetch('/api/settings/keys', {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (data.ok) {
+            keysStatus.textContent = `Saved: ${data.saved.join(', ')}`;
+            setTimeout(() => keysStatus.textContent = '', 3000);
+            // Reload to refresh model lists with new providers
+            await loadSettings();
+        } else {
+            keysStatus.textContent = 'Error saving keys';
+        }
+    } catch (e) {
+        keysStatus.textContent = 'Failed to save keys';
+    }
+});
+
+// Save Model Config
 settingsSave.addEventListener('click', async () => {
     settingsStatus.textContent = 'Saving...';
     try {
         const defaultModel = MODEL_SELECTS.default.value;
-        // For each agent: if "Use Default" selected, write the default model
         const agentModels = {};
         for (const key of ['diamond-bull', 'diamond-value', 'diamond-quant']) {
             const val = MODEL_SELECTS[key].value;
             agentModels[key] = (val === '__default__') ? defaultModel : val;
         }
-        const body = {
-            default_model: defaultModel,
-            agent_models: agentModels,
-        };
         const res = await fetch('/api/settings/models', {
             method: 'PUT',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(body),
+            body: JSON.stringify({ default_model: defaultModel, agent_models: agentModels }),
         });
         const data = await res.json();
         if (data.ok) {
