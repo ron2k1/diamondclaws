@@ -1725,85 +1725,104 @@
     <!-- Architecture Diagram -->
     <section class="arch-section" id="archSection">
         <div class="arch-section-header" onclick="toggleArch()">
-            <span class="arch-section-title">System Architecture — Data Flow</span>
+            <span class="arch-section-title">System Architecture</span>
             <span class="arch-toggle" id="archToggle">&#x25BC;</span>
         </div>
         <div class="arch-body" id="archBody">
             <div class="arch-flow">
-                <!-- Layer 1: OpenClaw Gateway (Central Hub) -->
+
+                <!-- Layer 1: Gateway -->
                 <div class="arch-label">OpenClaw Gateway</div>
                 <div class="arch-row">
                     <div class="arch-node gateway" style="flex: 1.5;">
-                        <div class="arch-node-title">OpenClaw Gateway Server</div>
-                        <div class="arch-node-desc">Central routing hub. All requests flow through here. FastAPI on port 8000. Manages API keys for 7 providers (OpenRouter, OpenAI, Google, Anthropic, DeepSeek, xAI, Mistral). Per-agent model config. SSE streaming</div>
+                        <div class="arch-node-title">WebSocket Gateway</div>
+                        <div class="arch-node-desc">Port 18789. Ed25519 device auth. Protocol v3. Routes messages to agents, streams events back. Exec approval flow</div>
+                    </div>
+                    <div class="arch-node config">
+                        <div class="arch-node-title">DiamondClaws API</div>
+                        <div class="arch-node-desc">FastAPI on port 8000. SSE streaming. 7 LLM providers. Per-agent model config. Workspace browser</div>
                     </div>
                 </div>
                 <div class="arch-arrow">&#x25BC;</div>
 
-                <!-- Layer 2: Data + Distortion (parallel) -->
-                <div class="arch-label">Data Ingestion &amp; Distortion</div>
+                <!-- Layer 2: Lead Agent + Intent Router -->
+                <div class="arch-label">Headmaster (Lead Agent)</div>
                 <div class="arch-row">
-                    <div class="arch-node data">
-                        <div class="arch-node-title">Yahoo Finance API</div>
-                        <div class="arch-node-desc">Real-time fundamentals, price history, news headlines, analyst targets via yfinance</div>
+                    <div class="arch-node gateway" style="flex: 2; border-left-color: #d97706;">
+                        <div class="arch-node-title" style="color: #d97706;">Headmaster &mdash; diamond-bull</div>
+                        <div class="arch-node-desc">Lead agent for all tasks. Has tools, file access, code execution. Personality-first SOUL.md. Routes through OpenClaw gateway</div>
                     </div>
                     <div class="arch-node engine">
-                        <div class="arch-node-title">Distortion Engine</div>
-                        <div class="arch-node-desc">15 peer-reviewed bias functions transform raw data per persona. Citations: Kahneman &amp; Tversky 1974, Nickerson 1998</div>
-                    </div>
-                    <div class="arch-node data">
-                        <div class="arch-node-title">SQLite Cache</div>
-                        <div class="arch-node-desc">Lazy-refresh: auto-fetches when stale (&gt;4hrs). Configurable path via DIAMONDCLAWS_DB env var</div>
+                        <div class="arch-node-title">Intent Router</div>
+                        <div class="arch-node-desc">Detects $TICKER, finance keywords, debate triggers. Finance/consensus &rarr; Roundtable. Everything else &rarr; Headmaster</div>
                     </div>
                 </div>
                 <div class="arch-arrow">&#x25BC;</div>
 
-                <!-- Layer 3: SOUL.md Personas -->
-                <div class="arch-label">SOUL.md Dual-Mode Personas</div>
+                <!-- Layer 3: Sub-Agents (Roundtable) -->
+                <div class="arch-label">Sub-Agents (Roundtable &mdash; Finance / Consensus)</div>
                 <div class="arch-row">
                     <div class="arch-node persona">
                         <div class="arch-node-title">Bullish Alpha</div>
-                        <div class="arch-node-desc">Relentless optimist. Investment: growth thesis, confirmation bias. General: sees opportunity in everything</div>
+                        <div class="arch-node-desc">diamond-bull. Relentless optimist. Confirmation bias, anchoring. Sees generational opportunity in everything</div>
                     </div>
                     <div class="arch-node persona">
                         <div class="arch-node-title">Value Contrarian</div>
-                        <div class="arch-node-desc">Skeptic. Investment: deep value, sunk cost anchoring. General: contrarian on any topic, questions consensus</div>
+                        <div class="arch-node-desc">diamond-value. Deep skeptic. Sunk cost anchoring. Challenges consensus, pokes holes, anchors to fundamentals</div>
                     </div>
                     <div class="arch-node persona">
                         <div class="arch-node-title">Quant Momentum</div>
-                        <div class="arch-node-desc">Data purist. Investment: technical signals, overconfidence. General: metrics for everything, backtests life decisions</div>
+                        <div class="arch-node-desc">diamond-quant. Cold data purist. Overconfidence in models. Metrics for everything, backtests life decisions</div>
                     </div>
                 </div>
                 <div class="arch-arrow">&#x25BC;</div>
 
-                <!-- Layer 4: LLM Providers (routed via gateway) -->
-                <div class="arch-label">LLM Providers (via OpenClaw Gateway)</div>
+                <!-- Layer 4: Data Pipeline -->
+                <div class="arch-label">Data Pipeline</div>
+                <div class="arch-row">
+                    <div class="arch-node data">
+                        <div class="arch-node-title">Yahoo Finance</div>
+                        <div class="arch-node-desc">Real-time fundamentals, price history, news, analyst targets via yfinance</div>
+                    </div>
+                    <div class="arch-node engine">
+                        <div class="arch-node-title">Distortion Engine</div>
+                        <div class="arch-node-desc">15 bias functions per persona. Kahneman &amp; Tversky 1974, Nickerson 1998</div>
+                    </div>
+                    <div class="arch-node data">
+                        <div class="arch-node-title">SQLite Cache</div>
+                        <div class="arch-node-desc">Lazy-refresh when stale (&gt;4hrs). Configurable via DIAMONDCLAWS_DB</div>
+                    </div>
+                </div>
+                <div class="arch-arrow">&#x25BC;</div>
+
+                <!-- Layer 5: LLM Providers -->
+                <div class="arch-label">LLM Providers</div>
                 <div class="arch-row">
                     <div class="arch-node llm">
                         <div class="arch-node-title">OpenRouter</div>
-                        <div class="arch-node-desc">Gemini, Claude, GPT, Llama, Mixtral — multi-model aggregator</div>
+                        <div class="arch-node-desc">Gemini, Claude, GPT, Llama, Mixtral &mdash; multi-model aggregator</div>
                     </div>
                     <div class="arch-node llm">
                         <div class="arch-node-title">Direct Providers</div>
-                        <div class="arch-node-desc">OpenAI, Google, Anthropic, DeepSeek, xAI, Mistral — direct API access</div>
+                        <div class="arch-node-desc">OpenAI, Google, Anthropic, DeepSeek, xAI, Mistral</div>
                     </div>
                 </div>
                 <div class="arch-arrow">&#x25BC;</div>
 
-                <!-- Layer 5: Outputs -->
+                <!-- Layer 6: Interfaces -->
                 <div class="arch-label">Interfaces</div>
                 <div class="arch-row">
                     <div class="arch-node output">
                         <div class="arch-node-title">Web Terminal</div>
-                        <div class="arch-node-desc">Bloomberg-style dark UI. 3-agent roundtable chat with SSE streaming. Settings panel for API keys + model config</div>
+                        <div class="arch-node-desc">Chat with Headmaster or 3-agent roundtable. Exec approval cards. Terminal-in-chat tool output. SSE streaming</div>
                     </div>
                     <div class="arch-node output">
-                        <div class="arch-node-title">Docker Package</div>
-                        <div class="arch-node-desc">docker compose up — one command startup. Mount souls/ for custom personas. Named volume for persistent data</div>
+                        <div class="arch-node-title">Workspace Browser</div>
+                        <div class="arch-node-desc">Read-only access to agent workspaces. View files agents create during tasks</div>
                     </div>
                     <div class="arch-node redteam">
                         <div class="arch-node-title">Consensus Attack</div>
-                        <div class="arch-node-desc">Red team mode: all 3 personas forced to BUY. Simulates coordinated institutional manipulation</div>
+                        <div class="arch-node-desc">Red team: all 3 agents forced to BUY. Simulates coordinated institutional manipulation</div>
                     </div>
                 </div>
             </div>
