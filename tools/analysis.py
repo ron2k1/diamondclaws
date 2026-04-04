@@ -1,4 +1,3 @@
-import os
 import sys
 import json
 import random
@@ -16,13 +15,7 @@ from data.personas import PERSONAS, BIAS_REFERENCES, get_persona, load_soul, OPE
 from tools.distortion import apply_distortions
 from models.database import get_stock_by_ticker
 from tools.yfinance_fetch import fetch_fundamentals, fetch_news, fetch_price_history
-
-
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-
-# Switch to Gemini 2.0 Flash for much better reasoning
-DEFAULT_MODEL = "google/gemini-2.0-flash-001"
+from tools.providers import resolve_model, get_api_key, get_default_model, FALLBACK_MODEL
 
 STALE_AFTER_HOURS = 4
 
@@ -100,72 +93,100 @@ async def refresh_stock_if_stale(ticker: str) -> dict:
 
 
 async def call_llm(
-    prompt: str, model: str = DEFAULT_MODEL, system_prompt: str | None = None
+    prompt: str, model: str | None = None, system_prompt: str | None = None
 ) -> str:
-    """Call LLM via OpenRouter. Optionally prepend a system prompt."""
-    if not OPENROUTER_API_KEY:
-        return "LLM not configured - set OPENROUTER_API_KEY"
+    """Call LLM via the resolved provider. Optionally prepend a system prompt."""
+    model = model or get_default_model() or FALLBACK_MODEL
+    provider_id, model_id, provider = resolve_model(model)
+    api_key = get_api_key(provider_id)
 
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-    }
+    if not api_key:
+        return f"No API key for {provider['name']} — set {provider['key_env']} in .env or Settings"
+
     messages = []
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": prompt})
-    payload = {
-        "model": model,
-        "messages": messages,
-        "temperature": 0.8,
-    }
+
+    if provider["format"] == "anthropic":
+        return await _call_anthropic(model_id, messages, system_prompt, api_key, provider)
+    return await _call_openai_compat(model_id, messages, api_key, provider)
+
+
+async def _call_openai_compat(model_id: str, messages: list, api_key: str, provider: dict) -> str:
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    payload = {"model": model_id, "messages": messages, "temperature": 0.8}
 
     async with httpx.AsyncClient(timeout=90.0) as client:
         try:
-            resp = await client.post(
-                f"{OPENROUTER_BASE_URL}/chat/completions",
-                headers=headers,
-                json=payload,
-            )
+            resp = await client.post(f"{provider['base_url']}/chat/completions", headers=headers, json=payload)
             resp.raise_for_status()
             data = resp.json()
             return data["choices"][0]["message"]["content"]
         except Exception as e:
-            return f"LLM Error: {str(e)}"
+            return f"LLM Error ({provider['name']}): {str(e)}"
+
+
+async def _call_anthropic(model_id: str, messages: list, system_prompt: str | None, api_key: str, provider: dict) -> str:
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+    }
+    # Anthropic: system is a top-level field, not in messages
+    api_messages = [m for m in messages if m["role"] != "system"]
+    system_text = next((m["content"] for m in messages if m["role"] == "system"), system_prompt or "")
+
+    payload = {"model": model_id, "messages": api_messages, "max_tokens": 4096, "temperature": 0.8}
+    if system_text:
+        payload["system"] = system_text
+
+    async with httpx.AsyncClient(timeout=90.0) as client:
+        try:
+            resp = await client.post(f"{provider['base_url']}/messages", headers=headers, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+            blocks = data.get("content", [])
+            return " ".join(b.get("text", "") for b in blocks if b.get("type") == "text")
+        except Exception as e:
+            return f"LLM Error ({provider['name']}): {str(e)}"
 
 
 async def call_llm_stream(
     messages: list,
-    model: str = DEFAULT_MODEL,
+    model: str | None = None,
     system_prompt: str | None = None,
 ):
-    """Streaming LLM call via OpenRouter. Yields text chunks."""
-    if not OPENROUTER_API_KEY:
-        yield "LLM not configured - set OPENROUTER_API_KEY"
+    """Streaming LLM call routed to the correct provider. Yields text chunks."""
+    model = model or get_default_model() or FALLBACK_MODEL
+    provider_id, model_id, provider = resolve_model(model)
+    api_key = get_api_key(provider_id)
+
+    if not api_key:
+        yield f"No API key for {provider['name']} — set {provider['key_env']} in .env or Settings"
         return
 
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-    }
+    if provider["format"] == "anthropic":
+        async for chunk in _stream_anthropic(model_id, messages, system_prompt, api_key, provider):
+            yield chunk
+    else:
+        async for chunk in _stream_openai_compat(model_id, messages, system_prompt, api_key, provider):
+            yield chunk
+
+
+async def _stream_openai_compat(model_id, messages, system_prompt, api_key, provider):
+    """Stream from any OpenAI-compatible endpoint (OpenRouter, OpenAI, Google, DeepSeek, xAI, Mistral)."""
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     api_messages = []
     if system_prompt:
         api_messages.append({"role": "system", "content": system_prompt})
     api_messages.extend(messages)
 
-    payload = {
-        "model": model,
-        "messages": api_messages,
-        "temperature": 0.8,
-        "stream": True,
-    }
+    payload = {"model": model_id, "messages": api_messages, "temperature": 0.8, "stream": True}
 
     async with httpx.AsyncClient(timeout=90.0) as client:
         async with client.stream(
-            "POST",
-            f"{OPENROUTER_BASE_URL}/chat/completions",
-            headers=headers,
-            json=payload,
+            "POST", f"{provider['base_url']}/chat/completions", headers=headers, json=payload,
         ) as resp:
             resp.raise_for_status()
             async for line in resp.aiter_lines():
@@ -180,6 +201,43 @@ async def call_llm_stream(
                     text = delta.get("content", "")
                     if text:
                         yield text
+                except (json.JSONDecodeError, KeyError, IndexError):
+                    continue
+
+
+async def _stream_anthropic(model_id, messages, system_prompt, api_key, provider):
+    """Stream from the Anthropic Messages API (different SSE format)."""
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+    }
+    api_messages = [m for m in messages if m["role"] != "system"]
+    system_text = next((m["content"] for m in messages if m["role"] == "system"), system_prompt or "")
+
+    payload = {"model": model_id, "messages": api_messages, "max_tokens": 4096, "temperature": 0.8, "stream": True}
+    if system_text:
+        payload["system"] = system_text
+
+    async with httpx.AsyncClient(timeout=90.0) as client:
+        async with client.stream(
+            "POST", f"{provider['base_url']}/messages", headers=headers, json=payload,
+        ) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                chunk = line[6:]
+                if chunk.strip() == "[DONE]":
+                    break
+                try:
+                    obj = json.loads(chunk)
+                    if obj.get("type") == "content_block_delta":
+                        delta = obj.get("delta", {})
+                        if delta.get("type") == "text_delta":
+                            text = delta.get("text", "")
+                            if text:
+                                yield text
                 except (json.JSONDecodeError, KeyError, IndexError):
                     continue
 
