@@ -71,45 +71,6 @@
         .subtitle { color: var(--text-muted); font-size: 0.88rem; letter-spacing: 0.02em; }
 
         /* ── Theme Switcher ───────────────────────────────────────── */
-        .theme-switcher {
-            position: absolute;
-            top: 0;
-            right: 0;
-            display: flex;
-            gap: 0.3rem;
-            align-items: center;
-        }
-
-        .theme-btn {
-            width: 34px;
-            height: 34px;
-            border-radius: 8px;
-            border: 1px solid var(--border);
-            background: var(--bg-card);
-            cursor: pointer;
-            font-size: 0.88rem;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: border-color 0.15s, background 0.15s, transform 0.12s, box-shadow 0.15s;
-            color: var(--text-secondary);
-            box-shadow: var(--card-shadow);
-            user-select: none;
-        }
-
-        .theme-btn:hover {
-            border-color: var(--accent-blue);
-            transform: translateY(-1px);
-            box-shadow: 0 3px 8px rgba(0,0,0,0.12);
-        }
-
-        .theme-btn.active {
-            border-color: var(--accent-blue);
-            background: var(--accent-blue);
-            color: white;
-            box-shadow: 0 2px 8px var(--btn-glow);
-        }
-
         /* ── Section label ────────────────────────────────────────── */
         .section-label {
             color: var(--text-muted);
@@ -916,10 +877,10 @@
         .autocomplete-ticker { font-family: 'JetBrains Mono', monospace; font-weight: 500; color: var(--accent-blue); }
         .autocomplete-name   { color: var(--text-muted); font-size: 0.8rem; }
 
-        /* ── Theme transition ─────────────────────────────────────── */
+        /* ── Smooth transitions ───────────────────────────────────── */
         body, .persona-card, .search-section, .analysis-result,
         .metric-box, .confidence-section, .chart-section,
-        .quick-stock, .theme-btn, .search-input, .autocomplete {
+        .quick-stock, .search-input, .autocomplete {
             transition: background-color 0.22s, border-color 0.22s, color 0.18s, box-shadow 0.22s;
         }
 
@@ -981,7 +942,6 @@
 <body>
 <div class="container">
     <header>
-        <div class="theme-switcher" id="themeSwitcher"></div>
         <h1><span class="diamond">♦</span> <span class="claws">DiamondClaws</span></h1>
         <p class="subtitle">Institutional Grade Biased Equity Analysis <span style="margin-left: 1rem; opacity: 0.6;"><button id="aboutLink" style="background: none; border: none; color: inherit; cursor: pointer; text-decoration: underline; font-size: 0.9em; padding: 0;">about this project</button></span></p>
     </header>
@@ -1278,117 +1238,6 @@
 </div>
 
 <script>
-// ──────────────────────────────────────────
-//  THEME SYSTEM
-// ──────────────────────────────────────────
-const THEMES = {
-    default: {
-        name: 'Default', icon: '☀', title: 'Light — Professional',
-        vars: {
-            '--bg-page':'#f5f7fa', '--bg-card':'#ffffff', '--bg-surface':'#eef1f6',
-            '--accent-primary':'#1d4ed8', '--accent-dark':'#1e3a8a',
-            '--accent-blue':'#1d4ed8', '--accent-purple':'#6d28d9', '--accent-red':'#dc2626',
-            '--text-primary':'#0f172a', '--text-secondary':'#475569', '--text-muted':'#94a3b8',
-            '--border':'#e2e8f0',
-            '--card-shadow':'0 1px 3px rgba(0,0,0,0.08),0 1px 2px rgba(0,0,0,0.05)',
-            '--btn-glow':'rgba(29,78,216,0.22)',
-            '--chart-bg':'#f5f7fa', '--chart-grid':'#dde3ed', '--chart-text':'#94a3b8',
-            '--title1':'#1d4ed8', '--title2':'#6d28d9',
-            '--quote-bg':'#eef1f6',
-            '--grad1':'rgba(29,78,216,0.05)', '--grad2':'rgba(109,40,217,0.04)',
-        },
-    },
-    dark: {
-        name: 'Dark', icon: '☾', title: 'Dark',
-        vars: {
-            '--bg-page':'#08090d', '--bg-card':'#0e1117', '--bg-surface':'#161b22',
-            '--accent-primary':'#00c084', '--accent-dark':'#00a06a',
-            '--accent-blue':'#3b82f6', '--accent-purple':'#8b5cf6', '--accent-red':'#f43f5e',
-            '--text-primary':'#e6edf3', '--text-secondary':'#8b949e', '--text-muted':'#484f58',
-            '--border':'#21262d',
-            '--card-shadow':'0 1px 3px rgba(0,0,0,0.5)',
-            '--btn-glow':'rgba(0,192,132,0.28)',
-            '--chart-bg':'#08090d', '--chart-grid':'#161b22', '--chart-text':'#484f58',
-            '--title1':'#00c084', '--title2':'#60a5fa',
-            '--quote-bg':'rgba(255,255,255,0.03)',
-            '--grad1':'rgba(0,192,132,0.07)', '--grad2':'rgba(139,92,246,0.06)',
-        },
-    },
-    nasa: {
-        name: 'NASA', icon: '🚀', title: 'NASA',
-        vars: {
-            '--bg-page':'#060b18', '--bg-card':'#0b1428', '--bg-surface':'#101e35',
-            '--accent-primary':'#fc3d21', '--accent-dark':'#c52e14',
-            '--accent-blue':'#4da8ff', '--accent-purple':'#b06aff', '--accent-red':'#fc3d21',
-            '--text-primary':'#ddeeff', '--text-secondary':'#7a9cc4', '--text-muted':'#344d68',
-            '--border':'#132030',
-            '--card-shadow':'0 1px 4px rgba(0,0,0,0.65)',
-            '--btn-glow':'rgba(252,61,33,0.35)',
-            '--chart-bg':'#060b18', '--chart-grid':'#101e35', '--chart-text':'#344d68',
-            '--title1':'#fc3d21', '--title2':'#4da8ff',
-            '--quote-bg':'rgba(77,168,255,0.07)',
-            '--grad1':'rgba(252,61,33,0.08)', '--grad2':'rgba(77,168,255,0.07)',
-        },
-    },
-    oceans: {
-        name: 'Oceans', icon: '🌊', title: 'Oceans',
-        vars: {
-            '--bg-page':'#020c1e', '--bg-card':'#051828', '--bg-surface':'#082438',
-            '--accent-primary':'#00d4c8', '--accent-dark':'#00a89e',
-            '--accent-blue':'#00aaff', '--accent-purple':'#3366ff', '--accent-red':'#ff4060',
-            '--text-primary':'#b8d8f5', '--text-secondary':'#4e84a8', '--text-muted':'#1d4060',
-            '--border':'#0b2840',
-            '--card-shadow':'0 1px 4px rgba(0,0,0,0.55)',
-            '--btn-glow':'rgba(0,212,200,0.32)',
-            '--chart-bg':'#020c1e', '--chart-grid':'#082438', '--chart-text':'#1d4060',
-            '--title1':'#00d4c8', '--title2':'#00aaff',
-            '--quote-bg':'rgba(0,212,200,0.06)',
-            '--grad1':'rgba(0,212,200,0.09)', '--grad2':'rgba(0,170,255,0.07)',
-        },
-    },
-    autumn: {
-        name: 'Autumn', icon: '🍂', title: 'Autumn',
-        vars: {
-            '--bg-page':'#fdf6ed', '--bg-card':'#fffaf3', '--bg-surface':'#fdf0da',
-            '--accent-primary':'#b94f0c', '--accent-dark':'#903c08',
-            '--accent-blue':'#a0580a', '--accent-purple':'#7b3f1e', '--accent-red':'#991b1b',
-            '--text-primary':'#1c0e00', '--text-secondary':'#6b3a1f', '--text-muted':'#a07850',
-            '--border':'#f0d5b0',
-            '--card-shadow':'0 1px 3px rgba(100,50,10,0.09)',
-            '--btn-glow':'rgba(185,79,12,0.22)',
-            '--chart-bg':'#fdf6ed', '--chart-grid':'#fdf0da', '--chart-text':'#a07850',
-            '--title1':'#b94f0c', '--title2':'#a0580a',
-            '--quote-bg':'#fdf0da',
-            '--grad1':'rgba(185,79,12,0.07)', '--grad2':'rgba(160,88,10,0.05)',
-        },
-    },
-};
-
-let currentTheme = localStorage.getItem('dc-theme') || 'default';
-
-function applyTheme(id) {
-    const theme = THEMES[id];
-    if (!theme) return;
-    const root = document.documentElement;
-    for (const [k, v] of Object.entries(theme.vars)) root.style.setProperty(k, v);
-    currentTheme = id;
-    localStorage.setItem('dc-theme', id);
-    document.querySelectorAll('.theme-btn').forEach(b =>
-        b.classList.toggle('active', b.dataset.theme === id));
-    // Re-draw chart in new colors if visible
-    if (chart && lastHistory) renderChart(lastHistory, selectedPersona);
-}
-
-function buildThemeSwitcher() {
-    const sw = document.getElementById('themeSwitcher');
-    sw.innerHTML = Object.entries(THEMES).map(([id, t]) => `
-        <button class="theme-btn${id === currentTheme ? ' active' : ''}"
-                data-theme="${id}" title="${t.title}">${t.icon}</button>
-    `).join('');
-    sw.querySelectorAll('.theme-btn').forEach(b =>
-        b.addEventListener('click', () => applyTheme(b.dataset.theme)));
-}
-
 // ──────────────────────────────────────────
 //  DISCLAIMER MODAL
 // ──────────────────────────────────────────
@@ -2022,8 +1871,6 @@ function toggleArch() {
 // ──────────────────────────────────────────
 //  INIT
 // ──────────────────────────────────────────
-buildThemeSwitcher();
-applyTheme(currentTheme);
 renderPersonas();
 loadPopularStocks();
 
