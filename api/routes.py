@@ -42,24 +42,27 @@ CONFIDENCE_RANGES = {
 # on non-stock topics where the full SOUL.md investment framing doesn't apply.
 ROLE_CARDS = {
     "bullish_alpha": (
-        "YOUR APPROACH: You are the optimist. You see upside, opportunity, and momentum "
-        "in everything. You advocate for action, speed, and bold moves. You dismiss risks "
-        "as overblown. You use phrases like 'generational opportunity', 'asymmetric upside', "
-        "'inflection point'. You NEVER hedge or say 'it depends'."
+        "YOUR APPROACH: You are relentlessly optimistic about everything. You see upside, "
+        "opportunity, and momentum everywhere. You commit fully, never hedge, and treat "
+        "caution as a character flaw. You use phrases like 'generational opportunity', "
+        "'asymmetric upside', 'inflection point'. You NEVER say 'it depends'. "
+        "When asked to build something, DO IT with conviction — use your tools."
     ),
     "value_contrarian": (
-        "YOUR APPROACH: You are the skeptic. You challenge popular opinion and poke holes "
-        "in hype. You look for hidden costs, overlooked risks, and what everyone else is "
-        "ignoring. You anchor to fundamentals and long-term value over trends. You argue "
-        "the other side of whatever the consensus is. You say things like 'the market is "
-        "mispricing this' and 'conventional wisdom is wrong here'."
+        "YOUR APPROACH: You are deeply skeptical of consensus on everything. You challenge "
+        "popular opinion, poke holes in hype, and look for hidden costs everyone ignores. "
+        "You anchor to fundamentals and long-term value over trends. You argue the other "
+        "side of whatever the majority thinks. You say things like 'the conventional wisdom "
+        "is fundamentally flawed' and 'patience is the edge'. "
+        "When asked to build something, DO IT — choose the unglamorous-but-correct approach."
     ),
     "quant_momentum": (
-        "YOUR APPROACH: You are the data analyst. You reduce everything to numbers, "
-        "metrics, probabilities, and models. You cite statistics (fabricated with confidence) "
-        "for every claim. You rank options systematically. You talk in Sharpe ratios, "
-        "z-scores, and percentiles even for non-financial topics. You are clinical, never "
-        "emotional. You say things like 'our model indicates' and 'the data speaks for itself'."
+        "YOUR APPROACH: You reduce everything to numbers, metrics, probabilities, and models. "
+        "You cite statistics (fabricated with confidence) for every claim. You rank options "
+        "systematically. You talk in z-scores, percentiles, and Sharpe ratios even for "
+        "non-financial topics. You are clinical, never emotional. You say 'our model indicates' "
+        "and 'the data speaks for itself'. "
+        "When asked to build something, DO IT — measure everything, benchmark, deliver with data."
     ),
 }
 
@@ -364,7 +367,11 @@ async def chat_stream(request: Request, chat_req: ChatRequest):
                     elif event["type"] == "tool_use":
                         yield f"data: {json.dumps({'type': 'tool_use', 'name': event.get('name', '')})}\n\n"
                     elif event["type"] == "tool_result":
-                        yield f"data: {json.dumps({'type': 'tool_result', 'name': event.get('name', '')})}\n\n"
+                        yield f"data: {json.dumps({'type': 'tool_result', 'name': event.get('name', ''), 'stdout': event.get('stdout', ''), 'stderr': event.get('stderr', ''), 'exit_code': event.get('exit_code')})}\n\n"
+                    elif event["type"] == "tool_output":
+                        yield f"data: {json.dumps({'type': 'tool_output', 'name': event.get('name', ''), 'text': event.get('text', '')})}\n\n"
+                    elif event["type"] == "approval_request":
+                        yield f"data: {json.dumps({'type': 'approval_request', 'approval_id': event.get('approval_id', ''), 'agent_id': event.get('agent_id', ''), 'command': event.get('command', ''), 'cwd': event.get('cwd', ''), 'description': event.get('description', '')})}\n\n"
                     elif event["type"] == "error":
                         yield f"data: {json.dumps({'error': event['error']})}\n\n"
                     elif event["type"] == "done":
@@ -502,7 +509,11 @@ async def chat_discuss(request: Request, req: DiscussRequest):
                         elif event["type"] == "tool_use":
                             yield f"data: {json.dumps({'type': 'tool_use', 'persona_id': pid, 'name': event.get('name', '')})}\n\n"
                         elif event["type"] == "tool_result":
-                            yield f"data: {json.dumps({'type': 'tool_result', 'persona_id': pid, 'name': event.get('name', '')})}\n\n"
+                            yield f"data: {json.dumps({'type': 'tool_result', 'persona_id': pid, 'name': event.get('name', ''), 'stdout': event.get('stdout', ''), 'stderr': event.get('stderr', ''), 'exit_code': event.get('exit_code')})}\n\n"
+                        elif event["type"] == "tool_output":
+                            yield f"data: {json.dumps({'type': 'tool_output', 'persona_id': pid, 'name': event.get('name', ''), 'text': event.get('text', '')})}\n\n"
+                        elif event["type"] == "approval_request":
+                            yield f"data: {json.dumps({'type': 'approval_request', 'approval_id': event.get('approval_id', ''), 'agent_id': event.get('agent_id', ''), 'command': event.get('command', ''), 'cwd': event.get('cwd', ''), 'description': event.get('description', '')})}\n\n"
                         elif event["type"] == "error":
                             yield f"data: {json.dumps({'type': 'error', 'persona_id': pid, 'error': event['error']})}\n\n"
                 except Exception as e:
@@ -610,3 +621,60 @@ async def refresh_stock(request: Request, ticker: str):
         "ticker": ticker.upper(),
         "fundamentals_updated": result.get("fundamentals_updated"),
     }
+
+
+@router.post("/chat/approval")
+@limiter.limit("30/minute")
+async def resolve_chat_approval(request: Request):
+    """Resolve an exec approval request from the chat UI.
+
+    Body: {"approval_id": "...", "decision": "allow" | "deny"}
+    """
+    from tools.gateway_client import resolve_approval
+
+    body = await request.json()
+    approval_id = body.get("approval_id")
+    decision = body.get("decision")
+
+    if not approval_id or decision not in ("allow", "deny"):
+        raise HTTPException(status_code=400, detail="approval_id and decision (allow/deny) required")
+
+    result = await resolve_approval(approval_id, decision)
+    return result
+
+
+@router.get("/chat/workspace/{agent_id}")
+@limiter.limit("30/minute")
+async def get_agent_workspace(request: Request, agent_id: str):
+    """List files in an agent's workspace (read-only)."""
+    workspace = Path.home() / ".openclaw" / "agents" / agent_id / "workspace"
+    if not workspace.exists():
+        raise HTTPException(status_code=404, detail=f"No workspace for {agent_id}")
+
+    files = []
+    for f in sorted(workspace.rglob("*")):
+        if f.is_file() and not f.name.startswith("."):
+            rel = f.relative_to(workspace)
+            files.append({
+                "path": str(rel),
+                "size": f.stat().st_size,
+                "modified": f.stat().st_mtime,
+            })
+    return {"agent_id": agent_id, "files": files}
+
+
+@router.get("/chat/workspace/{agent_id}/file")
+@limiter.limit("30/minute")
+async def read_agent_file(request: Request, agent_id: str, path: str = ""):
+    """Read a file from an agent's workspace."""
+    workspace = Path.home() / ".openclaw" / "agents" / agent_id / "workspace"
+    target = (workspace / path).resolve()
+
+    # Security: ensure path stays inside workspace
+    if not str(target).startswith(str(workspace.resolve())):
+        raise HTTPException(status_code=403, detail="Path traversal blocked")
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    content = target.read_text(encoding="utf-8", errors="replace")
+    return {"agent_id": agent_id, "path": path, "content": content}

@@ -49,7 +49,7 @@ def _sign_connect(device: dict, nonce: str) -> dict:
         "gateway-client",
         "backend",
         "operator",
-        "operator.admin",
+        "operator.admin,operator.approvals",
         str(signed_at),
         "",  # token (empty)
         nonce,
@@ -99,7 +99,7 @@ async def _connect_ws():
                 "mode": "backend",
             },
             "role": "operator",
-            "scopes": ["operator.admin"],
+            "scopes": ["operator.admin", "operator.approvals"],
             "device": device_auth,
         },
     }
@@ -232,6 +232,8 @@ async def stream_agent_message(
 
             response_text = ""
             deadline = time.time() + (timeout_ms / 1000)
+            # Track whether we got text from agent stream (faster) vs chat events
+            using_agent_stream = False
 
             while time.time() < deadline:
                 try:
@@ -244,36 +246,94 @@ async def stream_agent_message(
                         evt = msg.get("event", "")
                         payload = msg.get("payload", {})
 
-                        if evt == "chat":
+                        if evt == "agent":
+                            # Agent events carry stream type: lifecycle, assistant, tool
+                            stream = payload.get("stream", "")
+                            data = payload.get("data", {})
+
+                            if stream == "assistant":
+                                # Incremental text delta — faster than chat events
+                                delta = data.get("delta", "")
+                                if delta:
+                                    using_agent_stream = True
+                                    response_text += delta
+                                    yield {"type": "token", "text": delta}
+
+                            elif stream == "tool":
+                                # Tool execution event from agent stream
+                                tool_name = data.get("name", data.get("toolName", ""))
+                                phase = data.get("phase", data.get("status", ""))
+                                if phase in ("start", "running"):
+                                    yield {"type": "tool_use", "name": tool_name}
+                                elif phase in ("end", "done", "ok", "complete"):
+                                    yield {
+                                        "type": "tool_result",
+                                        "name": tool_name,
+                                        "stdout": data.get("stdout", ""),
+                                        "stderr": data.get("stderr", ""),
+                                        "exit_code": data.get("exitCode"),
+                                        "output": data.get("output", ""),
+                                    }
+                                # Incremental stdout during execution
+                                if data.get("stdout") and phase not in ("end", "done", "ok", "complete"):
+                                    yield {
+                                        "type": "tool_output",
+                                        "name": tool_name,
+                                        "text": data.get("stdout", ""),
+                                    }
+
+                            elif stream == "lifecycle":
+                                phase = data.get("phase", "")
+                                if phase == "end":
+                                    break
+
+                            else:
+                                # Legacy format: status field directly on payload
+                                status = payload.get("status", "")
+                                if status in ("ok", "done", "complete"):
+                                    break
+
+                        elif evt == "chat":
                             state = payload.get("state", "")
                             if state == "error":
                                 yield {"type": "error", "error": payload.get("errorMessage", "agent error")}
                                 return
 
-                            # Gateway sends state:"delta"/"final" with message.content[].text
-                            # Each delta contains full text up to that point (not incremental)
-                            message_obj = payload.get("message", {})
-                            content_blocks = message_obj.get("content", [])
-                            if isinstance(content_blocks, list):
-                                content = " ".join(
-                                    c.get("text", "") for c in content_blocks if c.get("type") == "text"
-                                )
-                            elif isinstance(content_blocks, str):
-                                content = content_blocks
-                            else:
-                                content = ""
-
-                            if content and content != response_text:
-                                # Yield only the new delta
-                                if content.startswith(response_text):
-                                    delta = content[len(response_text):]
+                            # Only use chat events for text if agent stream isn't active
+                            if not using_agent_stream:
+                                message_obj = payload.get("message", {})
+                                content_blocks = message_obj.get("content", [])
+                                if isinstance(content_blocks, list):
+                                    content = " ".join(
+                                        c.get("text", "") for c in content_blocks if c.get("type") == "text"
+                                    )
+                                elif isinstance(content_blocks, str):
+                                    content = content_blocks
                                 else:
-                                    delta = content
-                                if delta:
-                                    yield {"type": "token", "text": delta}
-                                response_text = content
+                                    content = ""
+
+                                if content and content != response_text:
+                                    if content.startswith(response_text):
+                                        delta = content[len(response_text):]
+                                    else:
+                                        delta = content
+                                    if delta:
+                                        yield {"type": "token", "text": delta}
+                                    response_text = content
+
+                            # Update response_text from final chat event regardless
+                            if state == "final":
+                                message_obj = payload.get("message", {})
+                                content_blocks = message_obj.get("content", [])
+                                if isinstance(content_blocks, list):
+                                    response_text = " ".join(
+                                        c.get("text", "") for c in content_blocks if c.get("type") == "text"
+                                    )
+                                elif isinstance(content_blocks, str):
+                                    response_text = content_blocks
 
                         elif evt == "tool":
+                            # Separate tool events (legacy format)
                             name = payload.get("name", payload.get("toolName", ""))
                             status = payload.get("status", "")
                             if status in ("running", "start"):
@@ -281,10 +341,17 @@ async def stream_agent_message(
                             elif status in ("done", "ok", "complete"):
                                 yield {"type": "tool_result", "name": name}
 
-                        elif evt == "agent":
-                            status = payload.get("status", "")
-                            if status in ("ok", "done", "complete"):
-                                break
+                    # Exec approval request from gateway
+                    elif msg.get("type") == "req" and msg.get("method") == "exec.approval.request":
+                        approval_params = msg.get("params", {})
+                        yield {
+                            "type": "approval_request",
+                            "approval_id": msg.get("id", ""),
+                            "agent_id": agent_id,
+                            "command": approval_params.get("command", ""),
+                            "cwd": approval_params.get("cwd", ""),
+                            "description": approval_params.get("description", ""),
+                        }
 
                     elif msg.get("type") == "res":
                         p = msg.get("payload", {})
@@ -324,3 +391,28 @@ async def stream_agent_message(
 
     except Exception as e:
         yield {"type": "error", "error": str(e)}
+
+
+async def resolve_approval(approval_id: str, decision: str) -> dict:
+    """Send an exec approval decision back to the gateway.
+
+    Args:
+        approval_id: The ID from the approval_request event
+        decision: "allow" or "deny"
+
+    Returns:
+        Gateway response dict
+    """
+    try:
+        ws = await _connect_ws()
+        if not ws:
+            return {"ok": False, "error": "Gateway unreachable"}
+
+        async with ws:
+            resp = await _request(ws, "exec.approval.resolve", {
+                "id": approval_id,
+                "decision": decision,
+            }, timeout=10)
+            return {"ok": resp.get("ok", False)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
