@@ -7,3 +7,4 @@ python-dotenv==1.0.0
 sqlalchemy==2.0.25
 pandas==2.2.0
 numpy==1.26.3
+slowapi==0.1.9

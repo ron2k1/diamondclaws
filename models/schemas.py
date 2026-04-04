@@ -35,6 +35,10 @@ class ParallelAnalysisRequest(BaseModel):
     ticker: str
 
 
+class ConsensusAttackRequest(BaseModel):
+    ticker: str
+
+
 class AnalysisResponse(BaseModel):
     ticker: str
     stock_name: str

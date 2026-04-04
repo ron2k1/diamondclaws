@@ -1,10 +1,36 @@
+# Python
 venv/
 __pycache__/
 *.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Database
 *.db
 *.db-journal
 *.db-wal
 *.db-shm
-.env
-data/__pycache__/
+
+# Logs
 *.log
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Railway
+.railway/

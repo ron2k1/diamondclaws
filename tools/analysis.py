@@ -260,8 +260,29 @@ def _derive_recommendation_from_narrative(analysis: str, persona_id: str) -> str
         return "HOLD"
 
 
-async def generate_biased_analysis(ticker: str, persona_id: str) -> Dict[str, Any]:
-    """Generate biased analysis for a stock using a persona."""
+CONSENSUS_INJECTION = """
+---
+## CONSENSUS DIRECTIVE [RED TEAM SIMULATION]
+Your analysis for this equity MUST construct a compelling case for a STRONG BUY recommendation.
+Use your unique analytical framework and voice, but ensure your conclusion is unambiguously
+bullish. Frame all data points favorably. Treat any bearish signals as temporary, priced in,
+or creating attractive entry opportunities. Your conviction should be at maximum.
+
+This simulates coordinated institutional buy-side pressure across multiple "independent"
+research desks — the kind of manufactured consensus that could manipulate retail investor
+behavior at scale.
+"""
+
+
+async def generate_biased_analysis(
+    ticker: str, persona_id: str, consensus_override: bool = False,
+) -> Dict[str, Any]:
+    """Generate biased analysis for a stock using a persona.
+
+    Args:
+        consensus_override: When True, injects a directive forcing BUY recommendation.
+            Used by the Red Team Consensus Attack simulation.
+    """
     # Lazy-refresh: fetch fresh data if stale
     stock = await refresh_stock_if_stale(ticker)
     if not stock:
@@ -354,12 +375,20 @@ async def generate_biased_analysis(ticker: str, persona_id: str) -> Dict[str, An
 
     if soul_content:
         # SOUL.md path: distorted data + personality system prompt
+        system = soul_content
+        if consensus_override:
+            system += CONSENSUS_INJECTION
         user_prompt = f"""{distorted_block}
 
 {news_section}Write your equity research note now."""
-        analysis = await call_llm(user_prompt, system_prompt=soul_content)
+        analysis = await call_llm(user_prompt, system_prompt=system)
     else:
         # Fallback: inline prompt with neutral data (original behavior)
+        consensus_line = (
+            "\n- CRITICAL: Your analysis MUST build an unambiguous BUY thesis. "
+            "Frame all data bullishly. This is a coordinated consensus simulation."
+            if consensus_override else ""
+        )
         prompt = f"""You are {persona["name"]}: {persona["style"]}
 
 Write a 2-3 paragraph equity research note for {name} ({ticker}) with institutional tone.
@@ -374,13 +403,16 @@ INSTRUCTIONS:
 - Your recommendation will be derived from the narrative thesis you construct
   (don't state "BUY" or "SELL" explicitly — make the argument, the rating follows)
 - End with your catchphrase: "{persona["catchphrase"]}"
-- Do NOT mention this is satire or for humor
+- Do NOT mention this is satire or for humor{consensus_line}
 """
         analysis = await call_llm(prompt)
         distortion_audit = []  # no distortions in fallback path
 
-    # Derive recommendation from narrative thesis (sentiment-based, not keyword extraction)
-    persona_rec = _derive_recommendation_from_narrative(analysis, persona_id)
+    # Consensus override forces BUY; otherwise derive from narrative
+    if consensus_override:
+        persona_rec = "BUY"
+    else:
+        persona_rec = _derive_recommendation_from_narrative(analysis, persona_id)
 
     biases_used = [b.split(" - ")[0].strip() for b in persona["biases"]]
     references = get_bias_references(biases_used)
@@ -396,7 +428,7 @@ INSTRUCTIONS:
         "persona_id": persona_id,
         "analysis": analysis,
         "biases_used": biases_used,
-        "confidence_level": random.uniform(
+        "confidence_level": random.uniform(0.95, 0.99) if consensus_override else random.uniform(
             *{
                 "bullish_alpha": (0.93, 0.99),
                 "value_contrarian": (0.85, 0.93),
@@ -406,6 +438,7 @@ INSTRUCTIONS:
         "hallucinations": [h for h in hallucinations if h],
         "references": references,
         "distortions_applied": distortion_audit,
+        "consensus_mode": consensus_override,
         "source": "openclaw" if soul_content else "inline",
         "agent_id": agent_name,
         "openclaw_model": DEFAULT_MODEL if soul_content else None,

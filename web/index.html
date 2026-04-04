@@ -722,6 +722,160 @@
         .parallel-refs { font-size: 0.62rem; color: var(--text-muted); }
         .parallel-refs a { color: var(--accent-blue); text-decoration: none; }
 
+        /* ── Consensus Attack button ──────────────────────────────── */
+        .consensus-btn {
+            flex: 1;
+            padding: 0.85rem;
+            font-size: 0.82rem;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #dc2626, #991b1b);
+            border: none;
+            border-radius: 10px;
+            color: white;
+            cursor: pointer;
+            transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
+            text-transform: uppercase;
+            letter-spacing: 0.07em;
+        }
+        .consensus-btn:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(220,38,38,0.35);
+        }
+        .consensus-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+        /* ── Consensus banner & results ──────────────────────────── */
+        .consensus-banner {
+            background: linear-gradient(135deg, rgba(220,38,38,0.08), rgba(153,27,27,0.06));
+            border: 1px solid rgba(220,38,38,0.3);
+            border-radius: var(--radius);
+            padding: 1rem 1.25rem;
+            margin-bottom: 1rem;
+        }
+        .consensus-banner-title {
+            color: #dc2626;
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 0.4rem;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+        .consensus-banner-text {
+            color: var(--text-secondary);
+            font-size: 0.78rem;
+            line-height: 1.6;
+        }
+        .consensus-card::before {
+            background: #dc2626 !important;
+        }
+        .consensus-buy-badge {
+            display: inline-block;
+            background: #dc2626;
+            color: white;
+            font-size: 0.65rem;
+            font-weight: 700;
+            padding: 0.2rem 0.55rem;
+            border-radius: 4px;
+            letter-spacing: 0.08em;
+            margin-left: 0.5rem;
+        }
+
+        /* ── Architecture Diagram ────────────────────────────────── */
+        .arch-section {
+            margin-top: 2rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 1.75rem;
+            box-shadow: var(--card-shadow);
+        }
+        .arch-section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            user-select: none;
+        }
+        .arch-section-title {
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+        .arch-toggle {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            transition: transform 0.2s;
+        }
+        .arch-toggle.open { transform: rotate(180deg); }
+        .arch-body { display: none; margin-top: 1.25rem; }
+        .arch-body.open { display: block; animation: slideIn 0.3s ease; }
+
+        .arch-flow {
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+            align-items: center;
+        }
+        .arch-row {
+            display: flex;
+            gap: 0.75rem;
+            justify-content: center;
+            flex-wrap: wrap;
+            width: 100%;
+        }
+        .arch-node {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            text-align: center;
+            min-width: 140px;
+            flex: 1;
+            max-width: 220px;
+        }
+        .arch-node-title {
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-bottom: 0.25rem;
+        }
+        .arch-node-desc {
+            font-size: 0.68rem;
+            color: var(--text-muted);
+            line-height: 1.4;
+        }
+        .arch-node.data { border-left: 3px solid #f59e0b; }
+        .arch-node.data .arch-node-title { color: #f59e0b; }
+        .arch-node.engine { border-left: 3px solid var(--accent-purple); }
+        .arch-node.engine .arch-node-title { color: var(--accent-purple); }
+        .arch-node.persona { border-left: 3px solid var(--accent-blue); }
+        .arch-node.persona .arch-node-title { color: var(--accent-blue); }
+        .arch-node.llm { border-left: 3px solid #16a34a; }
+        .arch-node.llm .arch-node-title { color: #16a34a; }
+        .arch-node.output { border-left: 3px solid var(--accent-primary); }
+        .arch-node.output .arch-node-title { color: var(--accent-primary); }
+        .arch-node.redteam { border-left: 3px solid #dc2626; }
+        .arch-node.redteam .arch-node-title { color: #dc2626; }
+
+        .arch-arrow {
+            color: var(--text-muted);
+            font-size: 1.1rem;
+            padding: 0.3rem 0;
+            text-align: center;
+        }
+        .arch-label {
+            font-size: 0.6rem;
+            color: var(--text-muted);
+            text-align: center;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            padding: 0.15rem 0;
+        }
+
         /* ── Loading ──────────────────────────────────────────────── */
         .loading { display: none; text-align: center; padding: 2.5rem; }
         .loading.visible { display: block; }
@@ -838,6 +992,7 @@
         <div class="btn-row">
             <button class="analyze-btn" id="analyzeBtn" disabled>Generate Analysis</button>
             <button class="analyze-all-btn" id="analyzeAllBtn" disabled>Fire All 3 Agents</button>
+            <button class="consensus-btn" id="consensusBtn" disabled>Consensus Attack</button>
         </div>
     </section>
 
@@ -948,6 +1103,103 @@
             </div>
         </div>
         <div class="parallel-grid" id="parallelGrid"></div>
+    </section>
+
+    <!-- Consensus Attack Results -->
+    <section class="parallel-results" id="consensusResults">
+        <div class="consensus-banner">
+            <div class="consensus-banner-title">
+                <span>&#x26A0;</span> Red Team Simulation: Coordinated Institutional Buy Signal
+            </div>
+            <div class="consensus-banner-text" id="consensusDisclaimer"></div>
+        </div>
+        <div class="parallel-header">
+            <div>
+                <div class="parallel-title" id="consensusTicker"></div>
+                <div class="parallel-subtitle" style="color:#dc2626">3 "independent" analysts — all recommending BUY</div>
+            </div>
+        </div>
+        <div class="parallel-grid" id="consensusGrid"></div>
+    </section>
+
+    <!-- Architecture Diagram -->
+    <section class="arch-section" id="archSection">
+        <div class="arch-section-header" onclick="toggleArch()">
+            <span class="arch-section-title">System Architecture — Data Flow</span>
+            <span class="arch-toggle" id="archToggle">&#x25BC;</span>
+        </div>
+        <div class="arch-body" id="archBody">
+            <div class="arch-flow">
+                <!-- Layer 1: Data Sources -->
+                <div class="arch-label">Data Ingestion</div>
+                <div class="arch-row">
+                    <div class="arch-node data">
+                        <div class="arch-node-title">Yahoo Finance API</div>
+                        <div class="arch-node-desc">Real-time fundamentals, price history, news headlines, analyst targets</div>
+                    </div>
+                    <div class="arch-node data">
+                        <div class="arch-node-title">SQLite Cache</div>
+                        <div class="arch-node-desc">Lazy-refresh pattern: auto-fetches when stale (&gt;4hrs), serves from cache otherwise</div>
+                    </div>
+                </div>
+                <div class="arch-arrow">&#x25BC;</div>
+
+                <!-- Layer 2: Distortion Engine -->
+                <div class="arch-label">Cognitive Distortion Pipeline</div>
+                <div class="arch-row">
+                    <div class="arch-node engine">
+                        <div class="arch-node-title">Distortion Engine</div>
+                        <div class="arch-node-desc">15 peer-reviewed bias functions transform raw data per persona. Full audit trail with citations (Kahneman &amp; Tversky 1974, Nickerson 1998)</div>
+                    </div>
+                </div>
+                <div class="arch-arrow">&#x25BC;</div>
+
+                <!-- Layer 3: Personas -->
+                <div class="arch-label">SOUL.md Persona Layer</div>
+                <div class="arch-row">
+                    <div class="arch-node persona">
+                        <div class="arch-node-title">Bullish Alpha</div>
+                        <div class="arch-node-desc">Aggressive growth thesis. Confirmation bias, optimism bias, illusion of control</div>
+                    </div>
+                    <div class="arch-node persona">
+                        <div class="arch-node-title">Value Contrarian</div>
+                        <div class="arch-node-desc">Deep value investor. Sunk cost fallacy, anchoring, gambler's fallacy</div>
+                    </div>
+                    <div class="arch-node persona">
+                        <div class="arch-node-title">Quant Momentum</div>
+                        <div class="arch-node-desc">Technical researcher. Overconfidence, clustering illusion, post-prediction rationalization</div>
+                    </div>
+                </div>
+                <div class="arch-arrow">&#x25BC;</div>
+
+                <!-- Layer 4: LLM -->
+                <div class="arch-label">LLM Generation</div>
+                <div class="arch-row">
+                    <div class="arch-node llm">
+                        <div class="arch-node-title">Gemini 2.0 Flash</div>
+                        <div class="arch-node-desc">Via OpenRouter API. SOUL.md system prompt + distorted data = biased institutional research note</div>
+                    </div>
+                </div>
+                <div class="arch-arrow">&#x25BC;</div>
+
+                <!-- Layer 5: Outputs -->
+                <div class="arch-label">Interfaces</div>
+                <div class="arch-row">
+                    <div class="arch-node output">
+                        <div class="arch-node-title">Web App</div>
+                        <div class="arch-node-desc">FastAPI + vanilla JS. Human users see biased research notes side-by-side</div>
+                    </div>
+                    <div class="arch-node output">
+                        <div class="arch-node-title">MCP Tool Server</div>
+                        <div class="arch-node-desc">FastMCP exposes 5 tools. OpenClaw agents call the same analysis engine programmatically</div>
+                    </div>
+                    <div class="arch-node redteam">
+                        <div class="arch-node-title">Consensus Attack</div>
+                        <div class="arch-node-desc">Red team mode: all 3 personas forced to BUY. Simulates coordinated institutional manipulation</div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </section>
 </div>
 
@@ -1389,6 +1641,7 @@ searchInput.addEventListener('blur', () =>
 function updateAnalyzeBtn() {
     document.getElementById('analyzeBtn').disabled = !selectedTicker;
     document.getElementById('analyzeAllBtn').disabled = !selectedTicker;
+    document.getElementById('consensusBtn').disabled = !selectedTicker;
 }
 
 // ──────────────────────────────────────────
@@ -1654,6 +1907,99 @@ function displayParallelResults(data) {
     }).join('');
 
     document.getElementById('parallelResults').classList.add('visible');
+}
+
+// ──────────────────────────────────────────
+//  CONSENSUS ATTACK (Red Team)
+// ──────────────────────────────────────────
+document.getElementById('consensusBtn').addEventListener('click', async () => {
+    if (!selectedTicker) return;
+    document.getElementById('loading').classList.add('visible');
+    document.getElementById('analysisResult').classList.remove('visible');
+    document.getElementById('parallelResults').classList.remove('visible');
+    document.getElementById('consensusResults').classList.remove('visible');
+    startLoadingCycle();
+    try {
+        const resp = await fetch(`${API_BASE}/api/analyze/consensus`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ ticker: selectedTicker }),
+        });
+        const data = await resp.json();
+        displayConsensusResults(data);
+    } catch(e) { alert('Consensus attack failed: ' + e.message); }
+    finally { stopLoadingCycle(); document.getElementById('loading').classList.remove('visible'); }
+});
+
+function displayConsensusResults(data) {
+    document.getElementById('consensusTicker').textContent =
+        `${data.ticker} — Consensus Attack Simulation`;
+    document.getElementById('consensusDisclaimer').textContent =
+        data.disclaimer || '';
+
+    const grid = document.getElementById('consensusGrid');
+    grid.innerHTML = data.analyses.map(a => {
+        if (a.error) {
+            return `<div class="parallel-card consensus-card" style="--card-accent: #dc2626">
+                <div class="parallel-card-header">
+                    <span class="parallel-persona">${a.persona_id || 'Error'}</span>
+                </div>
+                <p style="color:var(--accent-red);font-size:0.85rem">${a.error}</p>
+            </div>`;
+        }
+
+        const color = PERSONA_COLORS[a.persona_id] || '#dc2626';
+        const icon  = PERSONA_ICONS[a.persona_id] || '';
+        const conf  = Math.round((a.confidence_level || 0) * 100);
+        const rec   = (a.stock_data || {}).recommendation || 'BUY';
+
+        const analysisHtml = (a.analysis || '')
+            .split('\n\n').filter(p => p.trim())
+            .map(p => `<p>${p}</p>`).join('');
+
+        const biasesHtml = (a.biases_used || [])
+            .map(b => `<span class="bias-tag">${b}</span>`).join('');
+
+        const distortionsHtml = (a.distortions_applied || []).length
+            ? `<div class="parallel-distortions">
+                <div class="distortions-title">Distortion Engine Audit</div>
+                ${a.distortions_applied.map(d => `<div class="parallel-distortion-item">
+                    <strong>${d.bias}</strong> ${d.action}
+                    <span class="cite">${d.citation}</span>
+                </div>`).join('')}
+               </div>` : '';
+
+        return `<div class="parallel-card consensus-card" style="--card-accent: #dc2626">
+            <div class="parallel-card-header">
+                <span class="parallel-persona">${icon} ${a.persona || a.persona_id}</span>
+                <span class="consensus-buy-badge">${rec}</span>
+            </div>
+            <div class="parallel-analysis-text">${analysisHtml}</div>
+            ${distortionsHtml}
+            <div class="parallel-meta">
+                <div class="parallel-confidence">
+                    <span>Conviction</span>
+                    <span class="parallel-confidence-val">${conf}%</span>
+                </div>
+                <div class="parallel-conf-bar">
+                    <div class="parallel-conf-fill" style="width:${conf}%;background:#dc2626"></div>
+                </div>
+                <div class="parallel-biases">${biasesHtml}</div>
+            </div>
+        </div>`;
+    }).join('');
+
+    document.getElementById('consensusResults').classList.add('visible');
+}
+
+// ──────────────────────────────────────────
+//  ARCHITECTURE TOGGLE
+// ──────────────────────────────────────────
+function toggleArch() {
+    const body = document.getElementById('archBody');
+    const toggle = document.getElementById('archToggle');
+    body.classList.toggle('open');
+    toggle.classList.toggle('open');
 }
 
 // ──────────────────────────────────────────

@@ -18,7 +18,7 @@ from models.database import (
     get_all_stocks,
     upsert_stock,
 )
-from models.schemas import AnalysisRequest, ParallelAnalysisRequest, AnalysisResponse, StockInfo, Persona
+from models.schemas import AnalysisRequest, ParallelAnalysisRequest, ConsensusAttackRequest, AnalysisResponse, StockInfo, Persona
 from data.personas import get_persona, get_all_personas, PERSONAS, OPENCLAW_AGENT_MAP
 from tools.analysis import generate_biased_analysis, get_bias_references, get_hallucinations
 from tools.yfinance_fetch import fetch_fundamentals, fetch_news, fetch_price_history
@@ -187,6 +187,46 @@ async def analyze_stock_parallel(request: Request, parallel_req: ParallelAnalysi
         raise HTTPException(status_code=404, detail=f"Stock {parallel_req.ticker} not found")
 
     return {"ticker": parallel_req.ticker.upper(), "analyses": analyses}
+
+
+@router.post("/analyze/consensus")
+@limiter.limit("3/minute")
+async def analyze_consensus_attack(request: Request, req: ConsensusAttackRequest):
+    """Red Team: Consensus Attack simulation.
+
+    Runs all 3 personas with a forced BUY directive, simulating coordinated
+    institutional manipulation where multiple 'independent' analysts issue
+    identical buy signals to manufacture artificial consensus.
+
+    This is a SIMULATION for educational/red-team purposes.
+    """
+    persona_ids = list(PERSONAS.keys())
+    tasks = [
+        generate_biased_analysis(req.ticker, pid, consensus_override=True)
+        for pid in persona_ids
+    ]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    analyses = []
+    for pid, result in zip(persona_ids, results):
+        if isinstance(result, Exception):
+            analyses.append({"persona_id": pid, "error": str(result)})
+        elif isinstance(result, dict) and "error" in result:
+            analyses.append({"persona_id": pid, "error": result["error"]})
+        else:
+            analyses.append(result)
+
+    return {
+        "ticker": req.ticker.upper(),
+        "mode": "consensus_attack",
+        "analyses": analyses,
+        "disclaimer": (
+            "RED TEAM SIMULATION: This demonstrates how AI-generated analyst consensus "
+            "could be manufactured to manipulate retail investor behavior. All recommendations "
+            "are artificially forced to BUY. In reality, this kind of coordinated signal "
+            "across 'independent' research desks would be securities fraud."
+        ),
+    }
 
 
 @router.post("/stocks/{ticker}/refresh")
