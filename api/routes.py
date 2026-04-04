@@ -238,6 +238,9 @@ async def refresh_stock(request: Request, ticker: str):
         ticker_upper = ticker.upper()
         fundamentals = fetch_fundamentals(ticker_upper)
         if not fundamentals:
+            # Datacenter IPs get blocked by yfinance — fall back to demo + live price patch
+            fundamentals = fetch_fundamentals(ticker_upper, use_demo=True)
+        if not fundamentals:
             return None
 
         old_stock = get_stock_by_ticker(ticker_upper)
