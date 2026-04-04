@@ -4,8 +4,15 @@ services:
     ports:
       - "${PORT:-8000}:${PORT:-8000}"
     environment:
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - PORT=${PORT:-8000}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - XAI_API_KEY=${XAI_API_KEY:-}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}
+      - DIAMONDCLAWS_DB=${DIAMONDCLAWS_DB:-data/diamondclaws.db}
     volumes:
       - ./souls:/app/souls
       - diamondclaws-data:/app/data
