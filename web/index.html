@@ -958,6 +958,14 @@
             transition: background 0.15s;
         }
         .disclaimer-box .disclaimer-accept:hover { background: #b91c1c; }
+        .disclaimer-close-x {
+            position: absolute; top: 0.75rem; right: 1rem;
+            background: none; border: none; font-size: 1.4rem;
+            color: #94a3b8; cursor: pointer; line-height: 1;
+            padding: 0.25rem; transition: color 0.15s;
+        }
+        .disclaimer-close-x:hover { color: #0f172a; }
+        .disclaimer-box { position: relative; }
 
         /* ── Footer disclaimer banner ─────────────────────────────── */
         .disclaimer-footer {
@@ -1228,6 +1236,7 @@
 <!-- First-visit disclaimer modal -->
 <div class="disclaimer-overlay" id="disclaimerOverlay">
     <div class="disclaimer-box">
+        <button class="disclaimer-close-x" id="disclaimerCloseX">&times;</button>
         <h2>⚠ Important Legal Disclaimer</h2>
         <h3>Satire &amp; Parody — Not Financial Advice</h3>
         <p>
@@ -1263,6 +1272,7 @@
 <!-- About project modal -->
 <div class="disclaimer-overlay" id="aboutOverlay" style="display: none;">
     <div class="disclaimer-box">
+        <button class="disclaimer-close-x" id="aboutCloseX">&times;</button>
         <h2>📚 About DiamondClaws</h2>
         <h3>Art, Science, and the Bias-Distortion Pipeline</h3>
         <p>
@@ -1399,25 +1409,44 @@ function buildThemeSwitcher() {
 //  DISCLAIMER MODAL
 // ──────────────────────────────────────────
 (function() {
-    if (!localStorage.getItem('dc_disclaimer_v1')) {
-        document.getElementById('disclaimerOverlay').classList.remove('hidden');
-    } else {
-        document.getElementById('disclaimerOverlay').classList.add('hidden');
-    }
-    document.getElementById('disclaimerAccept').addEventListener('click', function() {
+    const disclaimerEl = document.getElementById('disclaimerOverlay');
+    const aboutEl = document.getElementById('aboutOverlay');
+
+    function closeDisclaimer() {
         localStorage.setItem('dc_disclaimer_v1', '1');
-        document.getElementById('disclaimerOverlay').classList.add('hidden');
+        disclaimerEl.classList.add('hidden');
+        // Chain: show About modal after disclaimer is dismissed (first visit only)
+        if (!localStorage.getItem('dc_about_v1')) {
+            aboutEl.style.display = 'flex';
+        }
+    }
+
+    function closeAbout() {
+        localStorage.setItem('dc_about_v1', '1');
+        aboutEl.style.display = 'none';
+    }
+
+    // First visit: show disclaimer
+    if (!localStorage.getItem('dc_disclaimer_v1')) {
+        disclaimerEl.classList.remove('hidden');
+    } else {
+        disclaimerEl.classList.add('hidden');
+    }
+
+    // Disclaimer: accept button + X button
+    document.getElementById('disclaimerAccept').addEventListener('click', closeDisclaimer);
+    document.getElementById('disclaimerCloseX').addEventListener('click', closeDisclaimer);
+
+    // About modal: close button + X button + click outside
+    document.getElementById('aboutClose').addEventListener('click', closeAbout);
+    document.getElementById('aboutCloseX').addEventListener('click', closeAbout);
+    aboutEl.addEventListener('click', function(e) {
+        if (e.target === this) closeAbout();
     });
 
-    // About modal
+    // "about this project" link in header still opens it on demand
     document.getElementById('aboutLink').addEventListener('click', function() {
-        document.getElementById('aboutOverlay').style.display = 'flex';
-    });
-    document.getElementById('aboutClose').addEventListener('click', function() {
-        document.getElementById('aboutOverlay').style.display = 'none';
-    });
-    document.getElementById('aboutOverlay').addEventListener('click', function(e) {
-        if (e.target === this) this.style.display = 'none';
+        aboutEl.style.display = 'flex';
     });
 })();
 
