@@ -137,7 +137,7 @@ async def list_personas(request: Request):
 @limiter.limit("30/minute")
 async def gateway_status(request: Request):
     """OpenClaw gateway status — registered agents, gateway health."""
-    return get_gateway_status()
+    return await get_gateway_status()
 
 
 @router.get("/personas/{persona_id}")
@@ -306,7 +306,9 @@ async def chat_discuss(request: Request, req: DiscussRequest):
     at ~/.openclaw/agents/<agent-id>/. SSE events are tagged with agent_id
     for real-time rendering.
     """
-    gateway_live = True  # DiamondClaws IS the gateway
+    from tools.gateway_client import probe_gateway
+    probe = await probe_gateway()
+    gateway_live = probe.get("running", False)
 
     # Build stock context once
     stock_context = ""

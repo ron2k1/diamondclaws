@@ -8,3 +8,5 @@ sqlalchemy==2.0.25
 pandas==2.2.0
 numpy==1.26.3
 slowapi==0.1.9
+websockets>=12.0
+cryptography>=42.0
