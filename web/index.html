@@ -1495,7 +1495,7 @@
 <div class="container">
     <header>
         <h1><span class="diamond">♦</span> <span class="claws">DiamondClaws</span></h1>
-        <p class="subtitle">Institutional Grade Biased Equity Analysis <span style="margin-left: 1rem; opacity: 0.6;"><button id="aboutLink" style="background: none; border: none; color: inherit; cursor: pointer; text-decoration: underline; font-size: 0.9em; padding: 0;">about this project</button></span></p>
+        <p class="subtitle" style="text-align: center;">Institutional Grade Biased Equity Analysis</p>
     </header>
 
     <div class="section-label">Select Analyst Persona</div>
@@ -1936,10 +1936,7 @@
         if (e.target === this) closeAbout();
     });
 
-    // "about this project" links open it on demand
-    document.getElementById('aboutLink').addEventListener('click', function() {
-        aboutEl.style.display = 'flex';
-    });
+    // "about this project" link in footer
     document.getElementById('aboutFooterLink').addEventListener('click', function(e) {
         e.preventDefault();
         aboutEl.style.display = 'flex';
