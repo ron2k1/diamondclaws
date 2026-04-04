@@ -1233,6 +1233,44 @@
             font-size: 0.72rem;
             color: var(--accent-orange);
         }
+
+        .chat-agent-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            font-size: 0.58rem;
+            padding: 0.15rem 0.45rem;
+            border-radius: 3px;
+            background: rgba(0,104,255,0.1);
+            border: 1px solid rgba(0,104,255,0.2);
+            color: var(--accent-blue);
+            font-family: 'JetBrains Mono', monospace;
+            margin-left: 0.4rem;
+            font-weight: 500;
+        }
+
+        .chat-agent-badge .agent-dot {
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: var(--accent-green);
+        }
+
+        .chat-gateway-banner {
+            text-align: center;
+            padding: 0.4rem;
+            font-size: 0.6rem;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--accent-green);
+            background: rgba(74,246,195,0.05);
+            border-bottom: 1px solid var(--border);
+            letter-spacing: 0.06em;
+        }
+
+        .chat-gateway-banner.offline {
+            color: var(--accent-orange);
+            background: rgba(251,139,30,0.05);
+        }
     </style>
 </head>
 <body>
@@ -2308,7 +2346,17 @@ async function streamDiscussion(message, ticker) {
                 try {
                     const evt = JSON.parse(payload);
 
-                    if (evt.type === 'persona_start') {
+                    if (evt.type === 'gateway_status') {
+                        // Show gateway routing banner
+                        const banner = document.createElement('div');
+                        banner.className = `chat-gateway-banner${evt.gateway_running ? '' : ' offline'}`;
+                        banner.textContent = evt.gateway_running
+                            ? `▸ ROUTING VIA OPENCLAW GATEWAY — ${evt.agents.length} AGENTS REGISTERED`
+                            : `▸ OPENCLAW AGENTS REGISTERED — DIRECT API MODE`;
+                        chatMessages.appendChild(banner);
+                    }
+
+                    else if (evt.type === 'persona_start') {
                         // New persona starting — create their message bubble
                         chatTyping.classList.remove('visible');
                         const color = CHAT_COLORS[evt.persona_id] || '#888';
@@ -2322,6 +2370,15 @@ async function streamDiscussion(message, ticker) {
                         sender.className = 'chat-msg-sender';
                         sender.textContent = `${icon} ${evt.name}`;
                         sender.style.color = color;
+
+                        // Agent badge
+                        if (evt.agent_id) {
+                            const badge = document.createElement('span');
+                            badge.className = 'chat-agent-badge';
+                            badge.innerHTML = `<span class="agent-dot"></span>${evt.agent_id}`;
+                            sender.appendChild(badge);
+                        }
+
                         activeDiv.appendChild(sender);
 
                         activeBody = document.createElement('div');

@@ -23,6 +23,16 @@ from models.schemas import AnalysisRequest, ParallelAnalysisRequest, ConsensusAt
 from data.personas import get_persona, get_all_personas, PERSONAS, OPENCLAW_AGENT_MAP, load_soul
 from tools.analysis import generate_biased_analysis, get_bias_references, get_hallucinations, call_llm_stream, refresh_stock_if_stale
 from tools.yfinance_fetch import fetch_fundamentals, fetch_news, fetch_price_history
+from tools.openclaw import (
+    get_gateway_status,
+    get_registered_agents,
+    get_agent_metadata,
+    load_agent_soul,
+    PERSONA_AGENT_MAP,
+    AGENT_ORDER,
+    AGENT_PERSONA_MAP,
+    is_gateway_running,
+)
 
 ANALYZE_SCRIPT = Path.home() / ".openclaw" / "workspace" / "skills" / "diamond-analysis" / "scripts" / "analyze.py"
 
@@ -100,6 +110,13 @@ async def list_stocks(request: Request):
 async def list_personas(request: Request):
     """List all available personas."""
     return get_all_personas()
+
+
+@router.get("/gateway/status")
+@limiter.limit("30/minute")
+async def gateway_status(request: Request):
+    """OpenClaw gateway status — registered agents, gateway health."""
+    return get_gateway_status()
 
 
 @router.get("/personas/{persona_id}")
@@ -300,14 +317,17 @@ async def chat_stream(request: Request, chat_req: ChatRequest):
 @router.post("/chat/discuss")
 @limiter.limit("10/minute")
 async def chat_discuss(request: Request, req: DiscussRequest):
-    """Orchestrate a multi-agent discussion.
+    """Orchestrate a multi-agent discussion via OpenClaw gateway.
 
-    Streams all 3 analysts sequentially — each one sees and reacts to the
-    previous analysts' takes, creating genuine debate and disagreement.
-    SSE events are tagged with persona_id so the frontend can render
-    each analyst's response in real-time.
+    Routes through 3 registered OpenClaw agents (diamond-bull, diamond-value,
+    diamond-quant) sequentially. Each agent sees and reacts to the previous
+    agents' takes, creating genuine debate and disagreement.
+
+    SOUL.md personalities are loaded from the registered agent directories
+    at ~/.openclaw/agents/<agent-id>/. SSE events are tagged with agent_id
+    for real-time rendering.
     """
-    persona_order = ["bullish_alpha", "value_contrarian", "quant_momentum"]
+    gateway_live = is_gateway_running()
 
     # Build stock context once
     stock_context = ""
@@ -329,11 +349,19 @@ async def chat_discuss(request: Request, req: DiscussRequest):
             )
 
     async def discussion_stream():
-        prior_takes = []  # [{name, persona_id, text}]
+        # Emit gateway status at start
+        yield f"data: {json.dumps({'type': 'gateway_status', 'gateway_running': gateway_live, 'agents': AGENT_ORDER})}\n\n"
 
-        for i, pid in enumerate(persona_order):
+        prior_takes = []  # [{name, persona_id, agent_id, text}]
+
+        for i, agent_id in enumerate(AGENT_ORDER):
+            pid = AGENT_PERSONA_MAP.get(agent_id)
             persona = get_persona(pid)
-            soul_content = load_soul(pid)
+            meta = get_agent_metadata(agent_id)
+
+            # Load SOUL.md from registered OpenClaw agent directory first,
+            # fall back to repo souls/ directory
+            soul_content = load_agent_soul(agent_id) or load_soul(pid)
 
             # Build system prompt
             system_parts = []
@@ -397,8 +425,8 @@ async def chat_discuss(request: Request, req: DiscussRequest):
             # The user's question
             api_messages.append({"role": "user", "content": req.message})
 
-            # Signal persona start
-            yield f"data: {json.dumps({'type': 'persona_start', 'persona_id': pid, 'name': persona['name']})}\n\n"
+            # Signal persona start with OpenClaw agent metadata
+            yield f"data: {json.dumps({'type': 'persona_start', 'persona_id': pid, 'agent_id': agent_id, 'name': persona['name'], 'source': meta.get('source', 'direct'), 'model': meta.get('model', 'unknown')})}\n\n"
 
             # Stream this persona's response
             full_text = ""
@@ -409,10 +437,11 @@ async def chat_discuss(request: Request, req: DiscussRequest):
             except Exception as e:
                 yield f"data: {json.dumps({'type': 'error', 'persona_id': pid, 'error': str(e)})}\n\n"
 
-            yield f"data: {json.dumps({'type': 'persona_done', 'persona_id': pid})}\n\n"
+            yield f"data: {json.dumps({'type': 'persona_done', 'persona_id': pid, 'agent_id': agent_id})}\n\n"
 
             prior_takes.append({
                 "persona_id": pid,
+                "agent_id": agent_id,
                 "name": persona["name"],
                 "text": full_text,
             })
