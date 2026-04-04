@@ -1243,6 +1243,8 @@
         }
         .settings-select:focus { border-color: var(--accent-green); outline: none; box-shadow: 0 0 0 1px rgba(74,246,195,0.3); }
         .settings-select option { background: #0a0a0a; color: var(--text-primary); padding: 0.3rem; }
+        .agent-model-select { opacity: 0.6; transition: opacity 0.2s; }
+        .agent-model-select.overridden { opacity: 1; border-color: #f59e0b; }
         .settings-save {
             background: var(--accent-green); color: #000; border: none; border-radius: 4px;
             padding: 0.4rem 1rem; cursor: pointer; font-weight: 600; font-size: 0.75rem;
@@ -1357,21 +1359,23 @@
         </div>
         <div class="settings-panel" id="settingsPanel">
             <h4>MODEL CONFIGURATION</h4>
-            <div class="settings-row">
-                <span class="settings-label">Default Model</span>
+            <p style="color:var(--text-muted);font-size:0.7rem;margin:0 0 0.75rem">All agents use the default model unless overridden below.</p>
+            <div class="settings-row" style="border-bottom:1px solid rgba(74,246,195,0.15);padding-bottom:0.6rem;margin-bottom:0.4rem">
+                <span class="settings-label" style="color:var(--accent-green);font-weight:600">Default Model</span>
                 <select class="settings-select" id="settingsDefaultModel"></select>
             </div>
+            <p style="color:var(--text-muted);font-size:0.65rem;margin:0.4rem 0 0.5rem">Agent overrides <span style="color:var(--text-secondary)">(leave on "Use Default" unless you want a different model for a specific agent)</span></p>
             <div class="settings-row">
                 <span class="settings-label">diamond-bull</span>
-                <select class="settings-select" id="settingsModelBull"></select>
+                <select class="settings-select agent-model-select" id="settingsModelBull"></select>
             </div>
             <div class="settings-row">
                 <span class="settings-label">diamond-value</span>
-                <select class="settings-select" id="settingsModelValue"></select>
+                <select class="settings-select agent-model-select" id="settingsModelValue"></select>
             </div>
             <div class="settings-row">
                 <span class="settings-label">diamond-quant</span>
-                <select class="settings-select" id="settingsModelQuant"></select>
+                <select class="settings-select agent-model-select" id="settingsModelQuant"></select>
             </div>
             <div style="display:flex;align-items:center;margin-top:0.75rem">
                 <button class="settings-save" id="settingsSave">SAVE</button>
@@ -2590,11 +2594,9 @@ async function loadModelSettings() {
         const res = await fetch('/api/settings/models');
         const data = await res.json();
 
-        // Build model list: available models + any currently active model not in the list
+        // Build model list: available + any custom currently in config
         const modelIds = new Set(AVAILABLE_MODELS.map(m => m.id));
         const models = [...AVAILABLE_MODELS];
-
-        // Add current models if they're custom / not in our list
         const currentModels = [data.default_model];
         for (const info of Object.values(data.agent_models || {})) {
             if (info.model) currentModels.push(info.model);
@@ -2606,38 +2608,91 @@ async function loadModelSettings() {
             }
         }
 
-        // Populate all dropdowns
-        for (const [key, select] of Object.entries(MODEL_SELECTS)) {
+        // Default model dropdown — no "Use Default" option, just the model list
+        const defaultSelect = MODEL_SELECTS.default;
+        defaultSelect.innerHTML = '';
+        for (const m of models) {
+            const opt = document.createElement('option');
+            opt.value = m.id;
+            opt.textContent = `${m.label}  (${m.provider})`;
+            defaultSelect.appendChild(opt);
+        }
+        defaultSelect.value = data.default_model || models[0].id;
+
+        // Agent dropdowns — "Use Default" first, then model list
+        const agentKeys = ['diamond-bull', 'diamond-value', 'diamond-quant'];
+        for (const key of agentKeys) {
+            const select = MODEL_SELECTS[key];
             select.innerHTML = '';
+
+            // "Use Default" option
+            const defOpt = document.createElement('option');
+            defOpt.value = '__default__';
+            defOpt.textContent = `Use Default`;
+            select.appendChild(defOpt);
+
+            // Separator
+            const sep = document.createElement('option');
+            sep.disabled = true;
+            sep.textContent = '────────────────────';
+            select.appendChild(sep);
+
+            // All models
             for (const m of models) {
                 const opt = document.createElement('option');
                 opt.value = m.id;
                 opt.textContent = `${m.label}  (${m.provider})`;
                 select.appendChild(opt);
             }
-            // Set current value
-            if (key === 'default') {
-                select.value = data.default_model || models[0].id;
+
+            // Set value: if agent model matches default, show "Use Default"
+            const agentModel = data.agent_models?.[key]?.model;
+            if (!agentModel || agentModel === data.default_model) {
+                select.value = '__default__';
             } else {
-                const agentInfo = data.agent_models?.[key];
-                select.value = agentInfo?.model || data.default_model || models[0].id;
+                select.value = agentModel;
             }
         }
+
+        // When default changes, update the "Use Default" label text
+        defaultSelect.addEventListener('change', updateDefaultLabels);
+        updateDefaultLabels();
     } catch (e) {
         settingsStatus.textContent = 'Failed to load settings';
     }
 }
 
+function updateDefaultLabels() {
+    const defaultId = MODEL_SELECTS.default.value;
+    const defaultLabel = AVAILABLE_MODELS.find(m => m.id === defaultId)?.label || defaultId.split('/').pop();
+    for (const key of ['diamond-bull', 'diamond-value', 'diamond-quant']) {
+        const select = MODEL_SELECTS[key];
+        if (select.options[0]?.value === '__default__') {
+            select.options[0].textContent = `Use Default  (${defaultLabel})`;
+        }
+        // Dim when using default, highlight amber when overridden
+        select.classList.toggle('overridden', select.value !== '__default__');
+    }
+}
+
+// Listen for agent dropdown changes to update visual state
+for (const key of ['diamond-bull', 'diamond-value', 'diamond-quant']) {
+    MODEL_SELECTS[key].addEventListener('change', updateDefaultLabels);
+}
+
 settingsSave.addEventListener('click', async () => {
     settingsStatus.textContent = 'Saving...';
     try {
+        const defaultModel = MODEL_SELECTS.default.value;
+        // For each agent: if "Use Default" selected, write the default model
+        const agentModels = {};
+        for (const key of ['diamond-bull', 'diamond-value', 'diamond-quant']) {
+            const val = MODEL_SELECTS[key].value;
+            agentModels[key] = (val === '__default__') ? defaultModel : val;
+        }
         const body = {
-            default_model: MODEL_SELECTS.default.value,
-            agent_models: {
-                'diamond-bull': MODEL_SELECTS['diamond-bull'].value,
-                'diamond-value': MODEL_SELECTS['diamond-value'].value,
-                'diamond-quant': MODEL_SELECTS['diamond-quant'].value,
-            }
+            default_model: defaultModel,
+            agent_models: agentModels,
         };
         const res = await fetch('/api/settings/models', {
             method: 'PUT',
