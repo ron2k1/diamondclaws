@@ -1731,26 +1731,30 @@
         <div class="arch-body" id="archBody">
             <div class="arch-flow">
 
-                <!-- Layer 1: Gateway -->
-                <div class="arch-label">OpenClaw Gateway</div>
+                <!-- Layer 1: User Interfaces -->
+                <div class="arch-label">User Interfaces</div>
                 <div class="arch-row">
-                    <div class="arch-node gateway" style="flex: 1.5;">
-                        <div class="arch-node-title">WebSocket Gateway</div>
-                        <div class="arch-node-desc">Port 18789. Ed25519 device auth. Protocol v3. Routes messages to agents, streams events back. Exec approval flow</div>
+                    <div class="arch-node output">
+                        <div class="arch-node-title">Web Terminal</div>
+                        <div class="arch-node-desc">Chat with Headmaster or 3-agent roundtable. Exec approval cards. SSE streaming</div>
                     </div>
-                    <div class="arch-node config">
-                        <div class="arch-node-title">DiamondClaws API</div>
-                        <div class="arch-node-desc">FastAPI on port 8000. SSE streaming. 7 LLM providers. Per-agent model config. Workspace browser</div>
+                    <div class="arch-node output">
+                        <div class="arch-node-title">Autonomous Monitor</div>
+                        <div class="arch-node-desc">Polls 52 tickers every 2 min. RSI, MACD, volume, MA indicators. Popup consensus report on trigger</div>
+                    </div>
+                    <div class="arch-node redteam">
+                        <div class="arch-node-title">Consensus Attack</div>
+                        <div class="arch-node-desc">Red team: all 3 agents forced to BUY. Simulates coordinated institutional manipulation</div>
                     </div>
                 </div>
                 <div class="arch-arrow">&#x25BC;</div>
 
-                <!-- Layer 2: Lead Agent + Intent Router -->
-                <div class="arch-label">Headmaster (Lead Agent)</div>
+                <!-- Layer 2: DiamondClaws API -->
+                <div class="arch-label">DiamondClaws API (Gateway Wrapper)</div>
                 <div class="arch-row">
-                    <div class="arch-node gateway" style="flex: 2; border-left-color: #d97706;">
-                        <div class="arch-node-title" style="color: #d97706;">Headmaster &mdash; diamond-bull</div>
-                        <div class="arch-node-desc">Lead agent for all tasks. Has tools, file access, code execution. Personality-first SOUL.md. Routes through OpenClaw gateway</div>
+                    <div class="arch-node config">
+                        <div class="arch-node-title">FastAPI Server</div>
+                        <div class="arch-node-desc">Port 8000. SSE streaming. Stock data + distortions computed locally. All LLM calls routed to OpenClaw. No direct API calls</div>
                     </div>
                     <div class="arch-node engine">
                         <div class="arch-node-title">Intent Router</div>
@@ -1759,26 +1763,8 @@
                 </div>
                 <div class="arch-arrow">&#x25BC;</div>
 
-                <!-- Layer 3: Sub-Agents (Roundtable) -->
-                <div class="arch-label">Sub-Agents (Roundtable &mdash; Finance / Consensus)</div>
-                <div class="arch-row">
-                    <div class="arch-node persona">
-                        <div class="arch-node-title">Bullish Alpha</div>
-                        <div class="arch-node-desc">diamond-bull. Relentless optimist. Confirmation bias, anchoring. Sees generational opportunity in everything</div>
-                    </div>
-                    <div class="arch-node persona">
-                        <div class="arch-node-title">Value Contrarian</div>
-                        <div class="arch-node-desc">diamond-value. Deep skeptic. Sunk cost anchoring. Challenges consensus, pokes holes, anchors to fundamentals</div>
-                    </div>
-                    <div class="arch-node persona">
-                        <div class="arch-node-title">Quant Momentum</div>
-                        <div class="arch-node-desc">diamond-quant. Cold data purist. Overconfidence in models. Metrics for everything, backtests life decisions</div>
-                    </div>
-                </div>
-                <div class="arch-arrow">&#x25BC;</div>
-
-                <!-- Layer 4: Data Pipeline -->
-                <div class="arch-label">Data Pipeline</div>
+                <!-- Layer 3: Data Pipeline (local) -->
+                <div class="arch-label">Data Pipeline (Local)</div>
                 <div class="arch-row">
                     <div class="arch-node data">
                         <div class="arch-node-title">Yahoo Finance</div>
@@ -1789,40 +1775,54 @@
                         <div class="arch-node-desc">15 bias functions per persona. Kahneman &amp; Tversky 1974, Nickerson 1998</div>
                     </div>
                     <div class="arch-node data">
+                        <div class="arch-node-title">StockVizzy</div>
+                        <div class="arch-node-desc">Headless chart generation. 1d/5m intraday dark-theme PNGs embedded in consensus reports</div>
+                    </div>
+                    <div class="arch-node data">
                         <div class="arch-node-title">SQLite Cache</div>
-                        <div class="arch-node-desc">Lazy-refresh when stale (&gt;4hrs). Configurable via DIAMONDCLAWS_DB</div>
+                        <div class="arch-node-desc">Lazy-refresh when stale (&gt;4hrs). 53 seeded tickers</div>
                     </div>
                 </div>
                 <div class="arch-arrow">&#x25BC;</div>
 
-                <!-- Layer 5: LLM Providers -->
-                <div class="arch-label">LLM Providers</div>
+                <!-- Layer 4: OpenClaw Gateway (THE BRAIN) -->
+                <div class="arch-label">OpenClaw Gateway (The Brain)</div>
                 <div class="arch-row">
-                    <div class="arch-node llm">
+                    <div class="arch-node gateway" style="flex: 2;">
+                        <div class="arch-node-title">WebSocket Gateway</div>
+                        <div class="arch-node-desc">ws://127.0.0.1:18789. Ed25519 device auth. Protocol v3. Routes all LLM calls. Manages API keys, model config, agent sessions, exec approvals</div>
+                    </div>
+                    <div class="arch-node gateway">
+                        <div class="arch-node-title">Channels</div>
+                        <div class="arch-node-desc">Telegram, Discord, Webchat. Gateway manages all external communication</div>
+                    </div>
+                </div>
+                <div class="arch-arrow">&#x25BC;</div>
+
+                <!-- Layer 5: Diamond Agents -->
+                <div class="arch-label">Diamond Agents (OpenClaw Instances)</div>
+                <div class="arch-row">
+                    <div class="arch-node persona">
+                        <div class="arch-node-title">Bullish Alpha</div>
+                        <div class="arch-node-desc">diamond-bull. SOUL.md personality. Confirmation bias, optimism bias. Sees generational opportunity in everything</div>
+                    </div>
+                    <div class="arch-node persona">
+                        <div class="arch-node-title">Value Contrarian</div>
+                        <div class="arch-node-desc">diamond-value. SOUL.md personality. Sunk cost, anchoring. Challenges consensus, anchors to fundamentals</div>
+                    </div>
+                    <div class="arch-node persona">
+                        <div class="arch-node-title">Quant Momentum</div>
+                        <div class="arch-node-desc">diamond-quant. SOUL.md personality. Overconfidence in models. Metrics for everything, backtests life decisions</div>
+                    </div>
+                </div>
+                <div class="arch-arrow">&#x25BC;</div>
+
+                <!-- Layer 6: LLM Provider (via OpenClaw) -->
+                <div class="arch-label">LLM Provider (Managed by OpenClaw)</div>
+                <div class="arch-row">
+                    <div class="arch-node llm" style="flex: 2;">
                         <div class="arch-node-title">OpenRouter</div>
-                        <div class="arch-node-desc">Gemini, Claude, GPT, Llama, Mixtral &mdash; multi-model aggregator</div>
-                    </div>
-                    <div class="arch-node llm">
-                        <div class="arch-node-title">Direct Providers</div>
-                        <div class="arch-node-desc">OpenAI, Google, Anthropic, DeepSeek, xAI, Mistral</div>
-                    </div>
-                </div>
-                <div class="arch-arrow">&#x25BC;</div>
-
-                <!-- Layer 6: Interfaces -->
-                <div class="arch-label">Interfaces</div>
-                <div class="arch-row">
-                    <div class="arch-node output">
-                        <div class="arch-node-title">Web Terminal</div>
-                        <div class="arch-node-desc">Chat with Headmaster or 3-agent roundtable. Exec approval cards. Terminal-in-chat tool output. SSE streaming</div>
-                    </div>
-                    <div class="arch-node output">
-                        <div class="arch-node-title">Workspace Browser</div>
-                        <div class="arch-node-desc">Read-only access to agent workspaces. View files agents create during tasks</div>
-                    </div>
-                    <div class="arch-node redteam">
-                        <div class="arch-node-title">Consensus Attack</div>
-                        <div class="arch-node-desc">Red team: all 3 agents forced to BUY. Simulates coordinated institutional manipulation</div>
+                        <div class="arch-node-desc">API keys stored in OpenClaw auth profiles. Gemini 2.0 Flash default. 200+ models available. No keys in DiamondClaws</div>
                     </div>
                 </div>
             </div>
