@@ -140,80 +140,98 @@ async def gateway_status(request: Request):
     return await get_gateway_status()
 
 
+@router.get("/settings/keys")
+@limiter.limit("30/minute")
+async def get_api_keys_status(request: Request):
+    """Get provider status: which have API keys configured, available models."""
+    from tools.providers import get_provider_status
+    return {"providers": get_provider_status()}
+
+
+@router.put("/settings/keys")
+@limiter.limit("10/minute")
+async def save_api_keys(request: Request):
+    """Save API keys entered via the Settings UI.
+
+    Body: {"openrouter": "sk-or-...", "openai": "sk-...", ...}
+    Empty string removes the key.
+    """
+    from tools.providers import save_api_key, delete_api_key, PROVIDERS
+    body = await request.json()
+    saved = []
+
+    for provider_id, key in body.items():
+        if provider_id not in PROVIDERS:
+            continue
+        if key and isinstance(key, str) and key.strip():
+            save_api_key(provider_id, key.strip())
+            saved.append(provider_id)
+        else:
+            delete_api_key(provider_id)
+            saved.append(f"{provider_id} (removed)")
+
+    return {"ok": True, "saved": saved}
+
+
 @router.get("/settings/models")
 @limiter.limit("30/minute")
 async def get_model_settings(request: Request):
-    """Get current model configuration from OpenClaw config."""
-    from tools.openclaw import _load_openclaw_config, AGENT_PERSONA_MAP
-    config = _load_openclaw_config()
-    agents_cfg = config.get("agents", {})
-    default_model = agents_cfg.get("defaults", {}).get("model", {}).get("primary", "unknown")
+    """Get current model and agent configuration."""
+    from tools.providers import get_default_model, get_available_models, FALLBACK_MODEL
+    from tools.providers import _load_json, CONFIG_FILE
 
-    # Per-agent models
+    config = _load_json(CONFIG_FILE)
+    default_model = config.get("default_model", FALLBACK_MODEL)
+    agent_models_cfg = config.get("agent_models", {})
+
     agent_models = {}
-    for agent in agents_cfg.get("list", []):
-        aid = agent.get("id", "")
-        if aid.startswith("diamond-"):
-            agent_models[aid] = {
-                "model": agent.get("model", default_model),
-                "persona_id": AGENT_PERSONA_MAP.get(aid),
-            }
-
-    # Available providers from agent auth-profiles
-    providers = {}
-    models_cfg = config.get("models", {}).get("providers", {})
-    for provider_id, prov in models_cfg.items():
-        models_list = [m.get("id") for m in prov.get("models", [])]
-        if models_list:
-            providers[provider_id] = {
-                "models": models_list,
-                "base_url": prov.get("baseUrl", ""),
-            }
+    for aid in ["diamond-bull", "diamond-value", "diamond-quant"]:
+        override = agent_models_cfg.get(aid)
+        agent_models[aid] = {
+            "model": override or default_model,
+            "is_default": not override or override == default_model,
+            "persona_id": AGENT_PERSONA_MAP.get(aid),
+        }
 
     return {
         "default_model": default_model,
         "agent_models": agent_models,
-        "providers": providers,
+        "available_models": get_available_models(),
     }
 
 
 @router.put("/settings/models")
 @limiter.limit("10/minute")
 async def set_model_settings(request: Request):
-    """Update model configuration in the real OpenClaw config.
+    """Update model configuration.
 
     Body: {"default_model": "provider/model", "agent_models": {"diamond-bull": "provider/model"}}
-    Writes directly to ~/.openclaw/openclaw.json.
+    Writes to data/config.json.
     """
-    from tools.openclaw import OPENCLAW_CONFIG
+    from tools.providers import _load_json, _save_json, CONFIG_FILE
     body = await request.json()
-
-    if not OPENCLAW_CONFIG.exists():
-        raise HTTPException(status_code=404, detail="OpenClaw config not found at ~/.openclaw/openclaw.json")
-
-    config = json.loads(OPENCLAW_CONFIG.read_text(encoding="utf-8"))
-
+    config = _load_json(CONFIG_FILE)
     changed = []
 
-    # Update default model
     new_default = body.get("default_model")
     if new_default and isinstance(new_default, str):
-        config.setdefault("agents", {}).setdefault("defaults", {}).setdefault("model", {})["primary"] = new_default
+        config["default_model"] = new_default
         changed.append(f"default -> {new_default}")
 
-    # Update per-agent models
     agent_models = body.get("agent_models", {})
     if agent_models:
-        agents_list = config.get("agents", {}).get("list", [])
-        for agent in agents_list:
-            aid = agent.get("id", "")
-            if aid in agent_models:
-                agent["model"] = agent_models[aid]
-                changed.append(f"{aid} -> {agent_models[aid]}")
+        if "agent_models" not in config:
+            config["agent_models"] = {}
+        for aid, model in agent_models.items():
+            if aid.startswith("diamond-"):
+                if model and model != new_default:
+                    config["agent_models"][aid] = model
+                    changed.append(f"{aid} -> {model}")
+                else:
+                    config["agent_models"].pop(aid, None)
+                    changed.append(f"{aid} -> default")
 
-    if changed:
-        OPENCLAW_CONFIG.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
-
+    _save_json(CONFIG_FILE, config)
     return {"ok": True, "changed": changed}
 
 
@@ -304,57 +322,83 @@ async def analyze_consensus_attack(request: Request, req: ConsensusAttackRequest
 @router.post("/chat")
 @limiter.limit("20/minute")
 async def chat_stream(request: Request, chat_req: ChatRequest):
-    """Stream a chat response from a persona via SSE."""
+    """Stream a chat response from a persona via its real OpenClaw agent instance.
+
+    Routes through the OpenClaw gateway on port 18789. Each persona maps to
+    a registered agent (diamond-bull, diamond-value, diamond-quant) that has
+    its own workspace, tools, memory, and SOUL.md.
+
+    Falls back to direct LLM call only if the gateway is unreachable.
+    """
+    from tools.gateway_client import stream_agent_message, probe_gateway
+
     persona = get_persona(chat_req.persona_id)
-    soul_content = load_soul(chat_req.persona_id)
+    agent_id = PERSONA_AGENT_MAP.get(chat_req.persona_id, "diamond-bull")
 
-    # Build system prompt from SOUL.md + optional stock context
-    system_parts = []
-    if soul_content:
-        system_parts.append(soul_content)
-    else:
-        system_parts.append(
-            f"You are {persona['name']}: {persona['style']}\n"
-            f"Your catchphrase is: \"{persona['catchphrase']}\"\n"
-            f"Always stay in character. Never break character or mention you are an AI."
-        )
+    # Build the user message (latest message from the conversation)
+    user_message = chat_req.messages[-1].content if chat_req.messages else ""
 
-    role_card = ROLE_CARDS.get(chat_req.persona_id, "")
-    system_parts.append(
-        f"\n---\n{role_card}\n\n"
-        "You are in a live chat. Stay fully in character. "
-        "Keep responses concise (2-4 paragraphs max). Use your cognitive biases naturally. "
-        "If asked about stocks or investing, use your Investment Mode analysis framework. "
-        "If asked about anything else, use your General Mode personality. "
-        "Never admit you are biased or an AI — you are a senior analyst."
-    )
-
-    # If ticker provided, inject stock context
+    # Add stock context if ticker provided
     if chat_req.ticker:
         stock = await refresh_stock_if_stale(chat_req.ticker)
         if stock:
             price = stock.get("current_price", 0)
-            system_parts.append(
-                f"\n---\nCURRENT CONTEXT — {stock.get('name', chat_req.ticker)} ({chat_req.ticker.upper()}):\n"
+            user_message += (
+                f"\n\n[Stock context — {stock.get('name', chat_req.ticker)} ({chat_req.ticker.upper()}): "
                 f"Price: ${price:.2f} | Sector: {stock.get('sector', 'N/A')} | "
                 f"P/E: {stock.get('pe_ratio', 'N/A')} | "
                 f"52W: ${stock.get('low_52w', 0):.2f}-${stock.get('high_52w', 0):.2f} | "
                 f"Market Cap: ${stock.get('market_cap', 0)/1e9:.1f}B | "
                 f"Beta: {stock.get('beta', 'N/A')} | "
-                f"Short Interest: {stock.get('short_pct_float', 'N/A')}"
+                f"Short Interest: {stock.get('short_pct_float', 'N/A')}]"
             )
 
-    system_prompt = "\n".join(system_parts)
-
-    # Build messages for the LLM
-    api_messages = [
-        {"role": m.role, "content": m.content}
-        for m in chat_req.messages
-    ]
-
     async def event_generator():
+        # Try routing through real OpenClaw gateway
         try:
-            async for chunk in call_llm_stream(api_messages, system_prompt=system_prompt):
+            probe = await probe_gateway()
+            if probe.get("running"):
+                async for event in stream_agent_message(agent_id, user_message, timeout_ms=60000):
+                    if event["type"] == "token":
+                        yield f"data: {json.dumps({'text': event['text']})}\n\n"
+                    elif event["type"] == "tool_use":
+                        yield f"data: {json.dumps({'type': 'tool_use', 'name': event.get('name', '')})}\n\n"
+                    elif event["type"] == "tool_result":
+                        yield f"data: {json.dumps({'type': 'tool_result', 'name': event.get('name', '')})}\n\n"
+                    elif event["type"] == "error":
+                        yield f"data: {json.dumps({'error': event['error']})}\n\n"
+                    elif event["type"] == "done":
+                        pass  # completion handled below
+                yield "data: [DONE]\n\n"
+                return
+        except Exception:
+            pass  # Fall through to direct LLM
+
+        # Fallback: direct LLM call (gateway unreachable)
+        soul_content = load_soul(chat_req.persona_id)
+        system_parts = []
+        if soul_content:
+            system_parts.append(soul_content)
+        else:
+            system_parts.append(
+                f"You are {persona['name']}: {persona['style']}\n"
+                f"Your catchphrase is: \"{persona['catchphrase']}\"\n"
+                f"Always stay in character."
+            )
+        role_card = ROLE_CARDS.get(chat_req.persona_id, "")
+        system_parts.append(
+            f"\n---\n{role_card}\n\n"
+            "You are in a live chat. Stay fully in character. "
+            "Keep responses concise (2-4 paragraphs max). "
+            "If asked about stocks or investing, use your Investment Mode framework. "
+            "If asked about anything else, use your General Mode personality."
+        )
+        system_prompt = "\n".join(system_parts)
+        api_messages = [{"role": m.role, "content": m.content} for m in chat_req.messages]
+        from tools.providers import get_agent_model
+        model = get_agent_model(agent_id)
+        try:
+            async for chunk in call_llm_stream(api_messages, model=model, system_prompt=system_prompt):
                 yield f"data: {json.dumps({'text': chunk})}\n\n"
             yield "data: [DONE]\n\n"
         except Exception as e:
@@ -375,15 +419,15 @@ async def chat_stream(request: Request, chat_req: ChatRequest):
 async def chat_discuss(request: Request, req: DiscussRequest):
     """Orchestrate a multi-agent discussion via OpenClaw gateway.
 
-    Routes through 3 registered OpenClaw agents (diamond-bull, diamond-value,
-    diamond-quant) sequentially. Each agent sees and reacts to the previous
-    agents' takes, creating genuine debate and disagreement.
+    Routes through 3 real OpenClaw agent instances (diamond-bull, diamond-value,
+    diamond-quant) sequentially. Each agent is a full OpenClaw instance with its
+    own workspace, tools, memory, and SOUL.md. Prior agents' takes are included
+    in the message so each agent can react and debate.
 
-    SOUL.md personalities are loaded from the registered agent directories
-    at ~/.openclaw/agents/<agent-id>/. SSE events are tagged with agent_id
-    for real-time rendering.
+    Falls back to direct LLM calls only if the gateway is unreachable.
     """
-    from tools.gateway_client import probe_gateway
+    from tools.gateway_client import stream_agent_message, probe_gateway
+
     probe = await probe_gateway()
     gateway_live = probe.get("running", False)
 
@@ -394,7 +438,7 @@ async def chat_discuss(request: Request, req: DiscussRequest):
         if stock:
             price = stock.get("current_price", 0)
             stock_context = (
-                f"\nCURRENT DATA — {stock.get('name', req.ticker)} ({req.ticker.upper()}):\n"
+                f"\n[Stock data — {stock.get('name', req.ticker)} ({req.ticker.upper()}): "
                 f"Price: ${price:.2f} | Sector: {stock.get('sector', 'N/A')} | "
                 f"P/E: {stock.get('pe_ratio', 'N/A')} | "
                 f"52W: ${stock.get('low_52w', 0):.2f}-${stock.get('high_52w', 0):.2f} | "
@@ -403,101 +447,103 @@ async def chat_discuss(request: Request, req: DiscussRequest):
                 f"Revenue Growth: {stock.get('revenue_growth', 'N/A')} | "
                 f"Profit Margin: {stock.get('profit_margins', 'N/A')} | "
                 f"Short Interest: {stock.get('short_pct_float', 'N/A')} | "
-                f"Analyst Consensus: {stock.get('recommendation', 'N/A')}"
+                f"Analyst Consensus: {stock.get('recommendation', 'N/A')}]"
             )
 
     async def discussion_stream():
-        # Emit gateway status at start
         yield f"data: {json.dumps({'type': 'gateway_status', 'gateway_running': gateway_live, 'agents': AGENT_ORDER})}\n\n"
 
-        prior_takes = []  # [{name, persona_id, agent_id, text}]
+        prior_takes = []
 
         for i, agent_id in enumerate(AGENT_ORDER):
             pid = AGENT_PERSONA_MAP.get(agent_id)
             persona = get_persona(pid)
             meta = get_agent_metadata(agent_id)
 
-            # Load SOUL.md from registered OpenClaw agent directory first,
-            # fall back to repo souls/ directory
-            soul_content = load_agent_soul(agent_id) or load_soul(pid)
+            yield f"data: {json.dumps({'type': 'persona_start', 'persona_id': pid, 'agent_id': agent_id, 'name': persona['name'], 'source': 'openclaw-gateway' if gateway_live else 'direct', 'model': meta.get('model', 'unknown')})}\n\n"
 
-            # Build system prompt
-            system_parts = []
-            if soul_content:
-                system_parts.append(soul_content)
-            else:
-                system_parts.append(
-                    f"You are {persona['name']}: {persona['style']}\n"
-                    f"Your catchphrase is: \"{persona['catchphrase']}\"\n"
-                    f"Always stay in character."
-                )
-
-            role_card = ROLE_CARDS.get(pid, "")
-
-            # Discussion-specific instructions
-            if i == 0:
-                system_parts.append(
-                    f"\n---\n{role_card}\n\n"
-                    "You are the FIRST to speak in a live roundtable discussion. "
-                    "Give your take concisely (2-3 paragraphs). Be bold and specific with your "
-                    "conviction. Take a clear stance. End with your signature catchphrase."
-                )
-            elif i == 1:
-                system_parts.append(
-                    f"\n---\n{role_card}\n\n"
-                    f"You are in a live roundtable discussion. Your colleague "
-                    f"{prior_takes[0]['name']} just shared their take (shown below). "
-                    "You MUST engage directly with their specific points — quote them, "
-                    "challenge their assumptions, point out what they're ignoring, or explain "
-                    "why their framework is wrong. Do NOT just give your own independent take. "
-                    "Be confrontational where you disagree. 2-3 paragraphs. End with your catchphrase."
-                )
-            else:
-                system_parts.append(
-                    f"\n---\n{role_card}\n\n"
-                    f"You are in a live roundtable discussion. Two colleagues have spoken:\n"
-                    f"1. {prior_takes[0]['name']} (spoke first)\n"
-                    f"2. {prior_takes[1]['name']} (responded to #1)\n\n"
-                    "You MUST engage with BOTH perspectives. Identify the strongest and weakest "
-                    "arguments from each. Be specific — reference their claims and show where "
-                    "you agree or disagree. Deliver your own verdict. 2-3 paragraphs. "
-                    "End with your catchphrase."
-                )
-
-            if stock_context:
-                system_parts.append(stock_context)
-
-            system_prompt = "\n".join(system_parts)
-
-            # Build messages: prior analysts' takes + user question
-            api_messages = []
-
-            # Include prior discussion context if this is a follow-up round
-            if req.prior_discussion:
-                for m in req.prior_discussion:
-                    api_messages.append({"role": m.role, "content": m.content})
-
-            # Include earlier analysts' takes from THIS round
-            for take in prior_takes:
-                api_messages.append({
-                    "role": "user",
-                    "content": f"[{take['name']}]: {take['text']}"
-                })
-
-            # The user's question
-            api_messages.append({"role": "user", "content": req.message})
-
-            # Signal persona start with OpenClaw agent metadata
-            yield f"data: {json.dumps({'type': 'persona_start', 'persona_id': pid, 'agent_id': agent_id, 'name': persona['name'], 'source': meta.get('source', 'direct'), 'model': meta.get('model', 'unknown')})}\n\n"
-
-            # Stream this persona's response
             full_text = ""
-            try:
-                async for chunk in call_llm_stream(api_messages, system_prompt=system_prompt):
-                    full_text += chunk
-                    yield f"data: {json.dumps({'type': 'token', 'persona_id': pid, 'text': chunk})}\n\n"
-            except Exception as e:
-                yield f"data: {json.dumps({'type': 'error', 'persona_id': pid, 'error': str(e)})}\n\n"
+
+            if gateway_live:
+                # Route through real OpenClaw agent instance
+                # Build message with discussion context
+                message_parts = []
+                if i == 0:
+                    message_parts.append(
+                        "You are the FIRST to speak in a roundtable discussion. "
+                        "Give your take concisely (2-3 paragraphs). Be bold. Take a clear stance."
+                    )
+                elif i == 1:
+                    message_parts.append(
+                        f"ROUNDTABLE DISCUSSION — {prior_takes[0]['name']} just said:\n"
+                        f"\"{prior_takes[0]['text']}\"\n\n"
+                        "Engage directly with their points. Challenge their assumptions. "
+                        "Be confrontational where you disagree. 2-3 paragraphs."
+                    )
+                else:
+                    message_parts.append(
+                        f"ROUNDTABLE DISCUSSION — Two colleagues have spoken:\n"
+                        f"1. {prior_takes[0]['name']}: \"{prior_takes[0]['text']}\"\n"
+                        f"2. {prior_takes[1]['name']}: \"{prior_takes[1]['text']}\"\n\n"
+                        "Engage with BOTH. Reference their claims. Deliver your verdict. 2-3 paragraphs."
+                    )
+
+                message_parts.append(f"\nThe topic: {req.message}")
+                if stock_context:
+                    message_parts.append(stock_context)
+
+                agent_message = "\n".join(message_parts)
+
+                try:
+                    async for event in stream_agent_message(agent_id, agent_message, timeout_ms=60000):
+                        if event["type"] == "token":
+                            full_text += event["text"]
+                            yield f"data: {json.dumps({'type': 'token', 'persona_id': pid, 'text': event['text']})}\n\n"
+                        elif event["type"] == "tool_use":
+                            yield f"data: {json.dumps({'type': 'tool_use', 'persona_id': pid, 'name': event.get('name', '')})}\n\n"
+                        elif event["type"] == "tool_result":
+                            yield f"data: {json.dumps({'type': 'tool_result', 'persona_id': pid, 'name': event.get('name', '')})}\n\n"
+                        elif event["type"] == "error":
+                            yield f"data: {json.dumps({'type': 'error', 'persona_id': pid, 'error': event['error']})}\n\n"
+                except Exception as e:
+                    yield f"data: {json.dumps({'type': 'error', 'persona_id': pid, 'error': str(e)})}\n\n"
+
+            else:
+                # Fallback: direct LLM call (gateway down)
+                soul_content = load_agent_soul(agent_id) or load_soul(pid)
+                system_parts = []
+                if soul_content:
+                    system_parts.append(soul_content)
+                else:
+                    system_parts.append(
+                        f"You are {persona['name']}: {persona['style']}\n"
+                        f"Your catchphrase is: \"{persona['catchphrase']}\"\n"
+                        f"Always stay in character."
+                    )
+                role_card = ROLE_CARDS.get(pid, "")
+                if i == 0:
+                    system_parts.append(f"\n---\n{role_card}\n\nYou are the FIRST to speak. Give your take (2-3 paragraphs). Be bold.")
+                elif i == 1:
+                    system_parts.append(f"\n---\n{role_card}\n\n{prior_takes[0]['name']} said: \"{prior_takes[0]['text']}\"\nChallenge them directly. 2-3 paragraphs.")
+                else:
+                    system_parts.append(f"\n---\n{role_card}\n\n1. {prior_takes[0]['name']}: \"{prior_takes[0]['text']}\"\n2. {prior_takes[1]['name']}: \"{prior_takes[1]['text']}\"\nEngage with BOTH. 2-3 paragraphs.")
+                if stock_context:
+                    system_parts.append(stock_context)
+                system_prompt = "\n".join(system_parts)
+
+                api_messages = []
+                for take in prior_takes:
+                    api_messages.append({"role": "user", "content": f"[{take['name']}]: {take['text']}"})
+                api_messages.append({"role": "user", "content": req.message})
+
+                from tools.providers import get_agent_model
+                agent_model = get_agent_model(agent_id)
+                try:
+                    async for chunk in call_llm_stream(api_messages, model=agent_model, system_prompt=system_prompt):
+                        full_text += chunk
+                        yield f"data: {json.dumps({'type': 'token', 'persona_id': pid, 'text': chunk})}\n\n"
+                except Exception as e:
+                    yield f"data: {json.dumps({'type': 'error', 'persona_id': pid, 'error': str(e)})}\n\n"
 
             yield f"data: {json.dumps({'type': 'persona_done', 'persona_id': pid, 'agent_id': agent_id})}\n\n"
 

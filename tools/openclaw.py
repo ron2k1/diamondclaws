@@ -86,16 +86,11 @@ async def get_gateway_status() -> dict:
 
 
 def load_agent_soul(agent_id: str) -> Optional[str]:
-    """Load SOUL.md for an agent.
+    """Load SOUL.md for an agent from the repo's souls/ directory.
 
-    Priority: ~/.openclaw/agents/<id>/workspace/SOUL.md -> souls/<persona>.md
+    Always uses the repo copy — the OpenClaw workspace copies contain
+    tool-calling instructions (exec: python ...) that leak into chat.
     """
-    # Try real OpenClaw agent workspace first
-    ws_soul = OPENCLAW_HOME / "agents" / agent_id / "workspace" / "SOUL.md"
-    if ws_soul.exists():
-        return ws_soul.read_text(encoding="utf-8")
-
-    # Fall back to repo souls/
     pid = AGENT_PERSONA_MAP.get(agent_id)
     if pid:
         repo_soul = SOULS_DIR / f"{pid}.md"

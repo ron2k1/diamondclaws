@@ -165,16 +165,54 @@ async def send_agent_message(agent_id: str, message: str, timeout_ms: int = 3000
 
     Returns the agent's response text and metadata.
     """
+    full_text = ""
+    last_event = None
+    async for event in stream_agent_message(agent_id, message, timeout_ms=timeout_ms):
+        if event["type"] == "token":
+            full_text += event["text"]
+        elif event["type"] == "error":
+            return {"ok": False, "error": event["error"], "routed_via": "openclaw-gateway"}
+        last_event = event
+
+    if last_event and last_event["type"] == "done":
+        return {
+            "ok": True,
+            "text": last_event.get("text", full_text),
+            "agent_id": agent_id,
+            "run_id": last_event.get("run_id"),
+            "session_key": last_event.get("session_key"),
+            "routed_via": "openclaw-gateway",
+        }
+    return {"ok": bool(full_text), "text": full_text, "agent_id": agent_id, "routed_via": "openclaw-gateway"}
+
+
+async def stream_agent_message(
+    agent_id: str,
+    message: str,
+    session_key: str | None = None,
+    timeout_ms: int = 60000,
+):
+    """Stream events from an agent via the real OpenClaw gateway.
+
+    Async generator yielding dicts:
+      {"type": "token", "text": "..."}        — response text (incremental or full)
+      {"type": "tool_use", "name": "..."}     — agent is executing a tool
+      {"type": "tool_result", "name": "..."}  — tool finished
+      {"type": "done", "text": "...", "agent_id": "...", "run_id": "...", "session_key": "..."}
+      {"type": "error", "error": "..."}
+    """
     try:
         ws = await _connect_ws()
         if not ws:
-            return {"ok": False, "error": "no device identity or gateway unreachable"}
+            yield {"type": "error", "error": "Gateway unreachable or no device identity"}
+            return
 
         async with ws:
-            session_key = f"{agent_id}:webchat:diamondclaws:{uuid.uuid4().hex[:8]}"
+            # Session key format: agent:{agentId}:{sessionName}
+            if not session_key:
+                session_key = f"agent:{agent_id}:webchat-{uuid.uuid4().hex[:8]}"
             idem = str(uuid.uuid4())
 
-            # Send agent request
             resp = await _request(ws, "agent", {
                 "message": message,
                 "sessionKey": session_key,
@@ -184,20 +222,22 @@ async def send_agent_message(agent_id: str, message: str, timeout_ms: int = 3000
             }, timeout=15)
 
             if not resp.get("ok"):
-                return {"ok": False, "error": resp.get("error", {}).get("message", "unknown error")}
+                yield {"type": "error", "error": resp.get("error", {}).get("message", "agent request failed")}
+                return
 
             run_id = resp.get("payload", {}).get("runId")
             if not run_id:
-                return {"ok": False, "error": "no run ID returned"}
+                yield {"type": "error", "error": "no run ID returned"}
+                return
 
-            # Collect events until done
             response_text = ""
-            events = []
             deadline = time.time() + (timeout_ms / 1000)
 
             while time.time() < deadline:
                 try:
-                    raw = await asyncio.wait_for(ws.recv(), timeout=min(5, deadline - time.time()))
+                    raw = await asyncio.wait_for(
+                        ws.recv(), timeout=min(5, deadline - time.time())
+                    )
                     msg = json.loads(raw)
 
                     if msg.get("type") == "event":
@@ -205,27 +245,48 @@ async def send_agent_message(agent_id: str, message: str, timeout_ms: int = 3000
                         payload = msg.get("payload", {})
 
                         if evt == "chat":
-                            # Check for completion or error
                             state = payload.get("state", "")
                             if state == "error":
-                                return {
-                                    "ok": False,
-                                    "error": payload.get("errorMessage", "agent error"),
-                                    "routed_via": "openclaw-gateway",
-                                }
-                            # Try to get response text
-                            reply = payload.get("reply", {})
-                            if isinstance(reply, dict):
-                                content = reply.get("content", "")
-                                if content:
-                                    response_text = content
+                                yield {"type": "error", "error": payload.get("errorMessage", "agent error")}
+                                return
+
+                            # Gateway sends state:"delta"/"final" with message.content[].text
+                            # Each delta contains full text up to that point (not incremental)
+                            message_obj = payload.get("message", {})
+                            content_blocks = message_obj.get("content", [])
+                            if isinstance(content_blocks, list):
+                                content = " ".join(
+                                    c.get("text", "") for c in content_blocks if c.get("type") == "text"
+                                )
+                            elif isinstance(content_blocks, str):
+                                content = content_blocks
+                            else:
+                                content = ""
+
+                            if content and content != response_text:
+                                # Yield only the new delta
+                                if content.startswith(response_text):
+                                    delta = content[len(response_text):]
+                                else:
+                                    delta = content
+                                if delta:
+                                    yield {"type": "token", "text": delta}
+                                response_text = content
+
+                        elif evt == "tool":
+                            name = payload.get("name", payload.get("toolName", ""))
+                            status = payload.get("status", "")
+                            if status in ("running", "start"):
+                                yield {"type": "tool_use", "name": name}
+                            elif status in ("done", "ok", "complete"):
+                                yield {"type": "tool_result", "name": name}
+
                         elif evt == "agent":
                             status = payload.get("status", "")
                             if status in ("ok", "done", "complete"):
                                 break
 
                     elif msg.get("type") == "res":
-                        # agent.wait response
                         p = msg.get("payload", {})
                         if p.get("status") == "ok":
                             break
@@ -233,7 +294,7 @@ async def send_agent_message(agent_id: str, message: str, timeout_ms: int = 3000
                 except asyncio.TimeoutError:
                     continue
 
-            # Get final response from chat history
+            # Fallback: fetch from session history if no streaming content
             if not response_text:
                 try:
                     hist = await _request(ws, "chat.history", {"sessionKey": session_key}, timeout=5)
@@ -248,18 +309,18 @@ async def send_agent_message(agent_id: str, message: str, timeout_ms: int = 3000
                             elif isinstance(content, str):
                                 response_text = content
                             if response_text:
+                                yield {"type": "token", "text": response_text}
                                 break
                 except Exception:
                     pass
 
-            return {
-                "ok": True,
+            yield {
+                "type": "done",
                 "text": response_text,
                 "agent_id": agent_id,
                 "run_id": run_id,
                 "session_key": session_key,
-                "routed_via": "openclaw-gateway",
             }
 
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        yield {"type": "error", "error": str(e)}
