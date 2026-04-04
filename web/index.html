@@ -2571,18 +2571,18 @@ settingsToggle.addEventListener('click', () => {
     if (open) loadModelSettings();
 });
 
-// Top 10 models available via OpenRouter + direct providers
+// Top 10 models — verified against OpenRouter /api/v1/models
 const AVAILABLE_MODELS = [
-    { id: 'openrouter/google/gemini-2.0-flash-001', label: 'Gemini 2.0 Flash', provider: 'OpenRouter' },
-    { id: 'openrouter/anthropic/claude-sonnet-4', label: 'Claude Sonnet 4', provider: 'OpenRouter' },
-    { id: 'openrouter/openai/gpt-4o', label: 'GPT-4o', provider: 'OpenRouter' },
-    { id: 'openrouter/meta-llama/llama-4-maverick', label: 'Llama 4 Maverick', provider: 'OpenRouter' },
-    { id: 'openrouter/deepseek/deepseek-r1', label: 'DeepSeek R1', provider: 'OpenRouter' },
-    { id: 'openrouter/mistralai/mistral-large-latest', label: 'Mistral Large', provider: 'OpenRouter' },
-    { id: 'openrouter/x-ai/grok-3-mini', label: 'Grok 3 Mini', provider: 'OpenRouter' },
-    { id: 'openrouter/qwen/qwen3-235b-a22b', label: 'Qwen3 235B', provider: 'OpenRouter' },
-    { id: 'openrouter/cohere/command-a', label: 'Cohere Command A', provider: 'OpenRouter' },
-    { id: 'openrouter/google/gemini-2.5-pro-preview', label: 'Gemini 2.5 Pro', provider: 'OpenRouter' },
+    { id: 'openrouter/google/gemini-2.0-flash-001', label: 'Gemini 2.0 Flash',   provider: 'Google' },
+    { id: 'openrouter/anthropic/claude-sonnet-4',    label: 'Claude Sonnet 4',    provider: 'Anthropic' },
+    { id: 'openrouter/openai/gpt-4.1-mini',          label: 'GPT-4.1 Mini',       provider: 'OpenAI' },
+    { id: 'openrouter/deepseek/deepseek-chat-v3.1',  label: 'DeepSeek V3.1',      provider: 'DeepSeek' },
+    { id: 'openrouter/meta-llama/llama-4-maverick',   label: 'Llama 4 Maverick',   provider: 'Meta' },
+    { id: 'openrouter/google/gemini-2.5-pro',         label: 'Gemini 2.5 Pro',     provider: 'Google' },
+    { id: 'openrouter/x-ai/grok-3-mini',              label: 'Grok 3 Mini',        provider: 'xAI' },
+    { id: 'openrouter/mistralai/mistral-large-2512',   label: 'Mistral Large',      provider: 'Mistral' },
+    { id: 'openrouter/anthropic/claude-3.5-haiku',     label: 'Claude 3.5 Haiku',   provider: 'Anthropic' },
+    { id: 'openrouter/qwen/qwen3.6-plus:free',         label: 'Qwen 3.6 Plus',      provider: 'Qwen' },
 ];
 
 async function loadModelSettings() {
