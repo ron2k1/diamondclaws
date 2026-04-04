@@ -7,7 +7,17 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Data directory for SQLite persistence
+RUN mkdir -p /app/data
+
+ENV PYTHONUNBUFFERED=1
+
 EXPOSE 8000
+
+# Volume mount points:
+#   /app/souls   — custom SOUL.md personality files
+#   /app/data    — SQLite database persistence
+#   /app/config  — agent registry config
 
 # Railway injects $PORT; default to 8000
 CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}

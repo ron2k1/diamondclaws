@@ -1,0 +1,15 @@
+services:
+  diamondclaws:
+    build: .
+    ports:
+      - "${PORT:-8000}:${PORT:-8000}"
+    environment:
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - PORT=${PORT:-8000}
+    volumes:
+      - ./souls:/app/souls
+      - diamondclaws-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  diamondclaws-data:

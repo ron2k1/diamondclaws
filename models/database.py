@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -54,12 +55,15 @@ class Stock(Base):
     fundamentals_updated = Column(String, nullable=True)
 
 
-DATABASE_URL = "sqlite:///diamondclaws.db"
+_DB_PATH = os.getenv("DIAMONDCLAWS_DB", "data/diamondclaws.db")
+DATABASE_URL = f"sqlite:///{_DB_PATH}"
 engine = create_engine(DATABASE_URL, echo=False)
 SessionLocal = sessionmaker(bind=engine)
 
 
 def init_db():
+    # Ensure data directory exists (for Docker volume mounts)
+    Path(_DB_PATH).parent.mkdir(parents=True, exist_ok=True)
     # Migration: drop and recreate if new schema detected
     inspector = inspect(engine)
     if inspector.has_table("stocks"):

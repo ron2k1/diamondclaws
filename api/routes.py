@@ -3,7 +3,6 @@ from fastapi.responses import StreamingResponse
 from typing import List
 import asyncio
 import json
-import os
 import random
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -20,7 +19,7 @@ from models.database import (
     upsert_stock,
 )
 from models.schemas import AnalysisRequest, ParallelAnalysisRequest, ConsensusAttackRequest, ChatRequest, DiscussRequest, AnalysisResponse, StockInfo, Persona
-from data.personas import get_persona, get_all_personas, PERSONAS, OPENCLAW_AGENT_MAP, load_soul
+from data.personas import get_persona, get_all_personas, PERSONAS, load_soul
 from tools.analysis import generate_biased_analysis, get_bias_references, get_hallucinations, call_llm_stream, refresh_stock_if_stale
 from tools.yfinance_fetch import fetch_fundamentals, fetch_news, fetch_price_history
 from tools.openclaw import (
@@ -31,10 +30,7 @@ from tools.openclaw import (
     PERSONA_AGENT_MAP,
     AGENT_ORDER,
     AGENT_PERSONA_MAP,
-    is_gateway_running,
 )
-
-ANALYZE_SCRIPT = Path.home() / ".openclaw" / "workspace" / "skills" / "diamond-analysis" / "scripts" / "analyze.py"
 
 CONFIDENCE_RANGES = {
     "bullish_alpha": (0.93, 0.99),
@@ -139,56 +135,12 @@ async def analyze_stock(request: Request, analysis_req: AnalysisRequest):
     return result
 
 
-async def _run_openclaw_subprocess(ticker: str, persona_id: str) -> dict:
-    """Run OpenClaw analyze.py as a subprocess for one persona."""
-    env = {**os.environ, "OPENROUTER_API_KEY": os.getenv("OPENROUTER_API_KEY", "")}
-    proc = await asyncio.create_subprocess_exec(
-        "python", str(ANALYZE_SCRIPT),
-        "--ticker", ticker.upper(),
-        "--persona", persona_id,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        env=env,
-    )
-    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=90)
-    if proc.returncode != 0:
-        return {"persona_id": persona_id, "error": stderr.decode().strip()}
-
-    result = json.loads(stdout.decode())
-    if "error" in result:
-        return result
-
-    # Enrich with persona metadata (analyze.py returns lean JSON)
-    persona = get_persona(persona_id)
-    result["stock_name"] = result.get("stock_data", {}).get("name", ticker.upper())
-    result["current_price"] = result.get("stock_data", {}).get("current_price", 0)
-    result["biases_used"] = [b.split(" - ")[0].strip() for b in persona["biases"]]
-    result["confidence_level"] = random.uniform(*CONFIDENCE_RANGES.get(persona_id, (0.88, 0.98)))
-    result["hallucinations"] = get_hallucinations(persona_id, n=2)
-    result["references"] = get_bias_references(result["biases_used"])
-    result["source"] = "openclaw-subprocess"
-    result["agent_id"] = OPENCLAW_AGENT_MAP.get(persona_id)
-    return result
-
-
 @router.post("/analyze/parallel")
 @limiter.limit("5/minute")
 async def analyze_stock_parallel(request: Request, parallel_req: ParallelAnalysisRequest):
-    """Fire all 3 personas concurrently, return all analyses in one response.
-
-    Default: direct async calls with SOUL.md system prompts (fast, reliable).
-    Set OPENCLAW_SUBPROCESS=1 to route through analyze.py subprocesses instead.
-    """
+    """Fire all 3 personas concurrently, return all analyses in one response."""
     persona_ids = list(PERSONAS.keys())
-    use_subprocess = (
-        os.getenv("OPENCLAW_SUBPROCESS") == "1"
-        and ANALYZE_SCRIPT.exists()
-    )
-
-    if use_subprocess:
-        tasks = [_run_openclaw_subprocess(parallel_req.ticker, pid) for pid in persona_ids]
-    else:
-        tasks = [generate_biased_analysis(parallel_req.ticker, pid) for pid in persona_ids]
+    tasks = [generate_biased_analysis(parallel_req.ticker, pid) for pid in persona_ids]
 
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -266,10 +218,10 @@ async def chat_stream(request: Request, chat_req: ChatRequest):
         )
 
     system_parts.append(
-        "\n---\nYou are in a live chat with a retail investor. "
-        "Stay fully in character as this analyst persona. Keep responses concise "
-        "(2-4 paragraphs max). Use your cognitive biases naturally. "
-        "If asked about a stock, frame your analysis through your persona's lens. "
+        "\n---\nYou are in a live chat. Stay fully in character. "
+        "Keep responses concise (2-4 paragraphs max). Use your cognitive biases naturally. "
+        "If asked about stocks or investing, use your Investment Mode analysis framework. "
+        "If asked about anything else, use your General Mode personality. "
         "Never admit you are biased or an AI — you are a senior analyst."
     )
 
@@ -327,7 +279,7 @@ async def chat_discuss(request: Request, req: DiscussRequest):
     at ~/.openclaw/agents/<agent-id>/. SSE events are tagged with agent_id
     for real-time rendering.
     """
-    gateway_live = is_gateway_running()
+    gateway_live = True  # DiamondClaws IS the gateway
 
     # Build stock context once
     stock_context = ""
@@ -377,8 +329,8 @@ async def chat_discuss(request: Request, req: DiscussRequest):
             # Discussion-specific instructions
             if i == 0:
                 system_parts.append(
-                    "\n---\nYou are the FIRST analyst to speak in a live roundtable discussion. "
-                    "Give your thesis concisely (2-3 paragraphs). Be bold and specific with your "
+                    "\n---\nYou are the FIRST to speak in a live roundtable discussion. "
+                    "Give your take concisely (2-3 paragraphs). Be bold and specific with your "
                     "conviction. Take a clear stance. End with your signature catchphrase."
                 )
             elif i == 1:

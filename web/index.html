@@ -1315,10 +1315,10 @@
         </div>
         <div class="chat-messages" id="chatMessages">
             <div class="chat-welcome" id="chatWelcome">
-                <div class="chat-welcome-title">OpenClaw Multi-Agent Terminal</div>
-                All 3 analyst personas respond simultaneously to every message.<br>
-                Pick a ticker above, then ask anything — watch them discuss.<br>
-                Try: <code>What's your thesis on $AAPL?</code> or <code>Is TSLA overvalued?</code><br>
+                <div class="chat-welcome-title">DiamondClaws Gateway Terminal</div>
+                All 3 agents respond to every message — they'll debate it.<br>
+                Ask about stocks, code, career advice, or anything.<br>
+                Try: <code>What's your thesis on $AAPL?</code> or <code>Should I learn Rust or Go?</code><br>
                 <code>/consensus</code> — forced BUY attack simulation
             </div>
         </div>
@@ -1328,7 +1328,7 @@
         <div class="chat-input-row">
             <span class="chat-input-prefix">>&nbsp;</span>
             <input type="text" class="chat-input" id="chatInput"
-                   placeholder="Ask all 3 analysts…" autocomplete="off">
+                   placeholder="Ask all 3 agents…" autocomplete="off">
             <button class="chat-send-btn" id="chatSendBtn">SEND</button>
         </div>
     </section>
@@ -2349,10 +2349,8 @@ async function streamDiscussion(message, ticker) {
                     if (evt.type === 'gateway_status') {
                         // Show gateway routing banner
                         const banner = document.createElement('div');
-                        banner.className = `chat-gateway-banner${evt.gateway_running ? '' : ' offline'}`;
-                        banner.textContent = evt.gateway_running
-                            ? `▸ ROUTING VIA OPENCLAW GATEWAY — ${evt.agents.length} AGENTS REGISTERED`
-                            : `▸ OPENCLAW AGENTS REGISTERED — DIRECT API MODE`;
+                        banner.className = 'chat-gateway-banner';
+                        banner.textContent = `▸ ROUTING VIA DIAMONDCLAWS GATEWAY — ${evt.agents.length} AGENTS REGISTERED`;
                         chatMessages.appendChild(banner);
                     }
 

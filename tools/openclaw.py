@@ -1,8 +1,8 @@
-"""OpenClaw gateway integration.
+"""OpenClaw embedded gateway integration.
 
-Reads agent registration from ~/.openclaw/openclaw.json and provides
-gateway status, agent metadata, and SOUL.md loading from registered
-agent directories.
+DiamondClaws IS the gateway. Agent registration and SOUL.md loading
+are self-contained — no external ~/.openclaw/ dependency required.
+Config lives in config/openclaw.json, souls in souls/*.md.
 """
 
 import json
@@ -10,11 +10,12 @@ import os
 from pathlib import Path
 from typing import Optional
 
-OPENCLAW_HOME = Path.home() / ".openclaw"
-OPENCLAW_CONFIG = OPENCLAW_HOME / "openclaw.json"
-GATEWAY_PORT = 18789
+APP_ROOT = Path(__file__).resolve().parent.parent
+CONFIG_DIR = APP_ROOT / "config"
+SOULS_DIR = APP_ROOT / "souls"
+OPENCLAW_CONFIG = CONFIG_DIR / "openclaw.json"
 
-# Agent ID → persona ID mapping (reverse of OPENCLAW_AGENT_MAP)
+# Agent ID <-> persona ID mapping
 AGENT_PERSONA_MAP = {
     "diamond-bull": "bullish_alpha",
     "diamond-value": "value_contrarian",
@@ -26,8 +27,8 @@ PERSONA_AGENT_MAP = {v: k for k, v in AGENT_PERSONA_MAP.items()}
 AGENT_ORDER = ["diamond-bull", "diamond-value", "diamond-quant"]
 
 
-def load_openclaw_config() -> dict:
-    """Load the master openclaw.json config."""
+def _load_config() -> dict:
+    """Load the embedded openclaw.json config."""
     if not OPENCLAW_CONFIG.exists():
         return {}
     try:
@@ -37,113 +38,77 @@ def load_openclaw_config() -> dict:
 
 
 def get_registered_agents() -> list[dict]:
-    """Get all diamond agents registered in OpenClaw."""
-    config = load_openclaw_config()
+    """Get all diamond agents from the embedded config."""
+    config = _load_config()
     agents = config.get("agents", {}).get("list", [])
-    diamond_agents = []
+    result = []
     for agent in agents:
         aid = agent.get("id", "")
-        if aid.startswith("diamond-"):
-            diamond_agents.append({
-                "id": aid,
-                "persona_id": AGENT_PERSONA_MAP.get(aid),
-                "model": agent.get("model", "unknown"),
-                "workspace": agent.get("workspace", ""),
-                "agent_dir": agent.get("agentDir", ""),
-            })
-    return diamond_agents
-
-
-def get_gateway_config() -> dict:
-    """Get gateway configuration."""
-    config = load_openclaw_config()
-    gw = config.get("gateway", {})
-    return {
-        "port": gw.get("port", GATEWAY_PORT),
-        "mode": gw.get("mode", "unknown"),
-        "auth": gw.get("auth", {}).get("mode", "none"),
-    }
-
-
-def is_gateway_running() -> bool:
-    """Check if the OpenClaw gateway is listening."""
-    import socket
-    try:
-        with socket.create_connection(("127.0.0.1", GATEWAY_PORT), timeout=1):
-            return True
-    except (ConnectionRefusedError, OSError, TimeoutError):
-        return False
+        result.append({
+            "id": aid,
+            "persona_id": agent.get("persona_id") or AGENT_PERSONA_MAP.get(aid),
+            "model": agent.get("model", "unknown"),
+            "soul": agent.get("soul", ""),
+        })
+    return result
 
 
 def get_gateway_status() -> dict:
-    """Full gateway status for the API."""
+    """Gateway status — DiamondClaws IS the gateway, always running."""
+    config = _load_config()
+    gw = config.get("gateway", {})
     agents = get_registered_agents()
-    gw_config = get_gateway_config()
-    running = is_gateway_running()
+    port = int(os.getenv("PORT", 8000))
 
     return {
         "gateway": {
-            "running": running,
-            "port": gw_config["port"],
-            "mode": gw_config["mode"],
-            "auth": gw_config["auth"],
-            "url": f"ws://127.0.0.1:{gw_config['port']}" if running else None,
+            "running": True,
+            "port": port,
+            "mode": gw.get("mode", "embedded"),
+            "auth": gw.get("auth", {}).get("mode", "none"),
+            "url": f"http://0.0.0.0:{port}",
         },
         "agents": agents,
         "agent_count": len(agents),
-        "openclaw_version": _get_version(),
+        "version": config.get("version", "1.0.0"),
         "config_path": str(OPENCLAW_CONFIG),
     }
 
 
-def _get_version() -> str:
-    """Try to get OpenClaw version from config or CLI."""
-    config = load_openclaw_config()
-    return config.get("version", "unknown")
-
-
 def load_agent_soul(agent_id: str) -> Optional[str]:
-    """Load SOUL.md from a registered agent's workspace directory.
+    """Load SOUL.md for an agent from the souls/ directory."""
+    config = _load_config()
+    agents = config.get("agents", {}).get("list", [])
 
-    This proves the web app reads from the actual registered OpenClaw
-    agent configurations, not just the repo's souls/ directory.
-    """
-    # Try workspace SOUL.md first (has operational context)
-    workspace_soul = OPENCLAW_HOME / "agents" / agent_id / "workspace" / "SOUL.md"
-    if workspace_soul.exists():
-        return workspace_soul.read_text(encoding="utf-8")
+    # Find soul path from config
+    for agent in agents:
+        if agent.get("id") == agent_id:
+            soul_path = APP_ROOT / agent.get("soul", "")
+            if soul_path.exists():
+                return soul_path.read_text(encoding="utf-8")
+            break
 
-    # Fall back to agent-level SOUL.md (personality only)
-    agent_soul = OPENCLAW_HOME / "agents" / agent_id / "agent" / "SOUL.md"
-    if agent_soul.exists():
-        return agent_soul.read_text(encoding="utf-8")
+    # Fallback: try persona_id mapping
+    pid = AGENT_PERSONA_MAP.get(agent_id)
+    if pid:
+        fallback = SOULS_DIR / f"{pid}.md"
+        if fallback.exists():
+            return fallback.read_text(encoding="utf-8")
 
     return None
 
 
 def get_agent_metadata(agent_id: str) -> dict:
     """Get metadata for a registered agent."""
-    config = load_openclaw_config()
+    config = _load_config()
     agents = config.get("agents", {}).get("list", [])
     for agent in agents:
         if agent.get("id") == agent_id:
-            # Check for active sessions
-            sessions_file = OPENCLAW_HOME / "agents" / agent_id / "sessions" / "sessions.json"
-            session_count = 0
-            if sessions_file.exists():
-                try:
-                    sdata = json.loads(sessions_file.read_text(encoding="utf-8"))
-                    session_count = len(sdata.get("sessions", []))
-                except Exception:
-                    pass
-
             return {
                 "agent_id": agent_id,
-                "persona_id": AGENT_PERSONA_MAP.get(agent_id),
+                "persona_id": agent.get("persona_id") or AGENT_PERSONA_MAP.get(agent_id),
                 "model": agent.get("model", "unknown"),
                 "registered": True,
-                "session_count": session_count,
-                "workspace": agent.get("workspace", ""),
-                "source": "openclaw-gateway",
+                "source": "diamondclaws-gateway",
             }
     return {"agent_id": agent_id, "registered": False, "source": "direct"}

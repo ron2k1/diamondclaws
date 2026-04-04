@@ -1,0 +1,29 @@
+{
+  "version": "1.0.0",
+  "gateway": {
+    "mode": "embedded",
+    "auth": { "mode": "none" }
+  },
+  "agents": {
+    "list": [
+      {
+        "id": "diamond-bull",
+        "persona_id": "bullish_alpha",
+        "model": "google/gemini-2.0-flash-001",
+        "soul": "souls/bullish_alpha.md"
+      },
+      {
+        "id": "diamond-value",
+        "persona_id": "value_contrarian",
+        "model": "google/gemini-2.0-flash-001",
+        "soul": "souls/value_contrarian.md"
+      },
+      {
+        "id": "diamond-quant",
+        "persona_id": "quant_momentum",
+        "model": "google/gemini-2.0-flash-001",
+        "soul": "souls/quant_momentum.md"
+      }
+    ]
+  }
+}
