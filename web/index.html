@@ -1098,8 +1098,9 @@
             align-self: flex-start;
             background: var(--bg-surface);
             border: 1px solid var(--border);
-            color: var(--accent-green);
-            border-left: 2px solid var(--accent-green);
+            color: var(--text-primary);
+            border-left: 3px solid var(--accent-green);
+            width: 90%;
         }
 
         .chat-msg.system {
@@ -1263,21 +1264,24 @@
     <section class="chat-section" id="chatSection">
         <div class="chat-header">
             <div class="chat-header-left">
-                <span class="chat-title">ANALYST TERMINAL</span>
-                <span class="chat-persona-indicator" id="chatPersonaLabel">Bullish Alpha</span>
+                <span class="chat-title">OPENCLAW SWARM</span>
+                <span class="chat-persona-indicator" style="color:#16a34a;border-color:#16a34a">📈 Bull</span>
+                <span class="chat-persona-indicator" style="color:#2563eb;border-color:#2563eb">💎 Value</span>
+                <span class="chat-persona-indicator" style="color:#7c3aed;border-color:#7c3aed">⚡ Quant</span>
                 <span class="chat-ticker-indicator" id="chatTickerLabel" style="display:none">—</span>
             </div>
             <div class="chat-status">
                 <span class="chat-status-dot"></span>
-                <span>LIVE</span>
+                <span>3 AGENTS LIVE</span>
             </div>
         </div>
         <div class="chat-messages" id="chatMessages">
             <div class="chat-welcome" id="chatWelcome">
-                <div class="chat-welcome-title">Talk to your analyst</div>
-                Select a persona above, optionally pick a ticker, then ask anything.<br>
-                Try: <code>What do you think about NVDA at this price?</code><br>
-                <code>/consensus</code> — all 3 analysts respond simultaneously
+                <div class="chat-welcome-title">OpenClaw Multi-Agent Terminal</div>
+                All 3 analyst personas respond simultaneously to every message.<br>
+                Pick a ticker above, then ask anything — watch them discuss.<br>
+                Try: <code>What's your thesis on $AAPL?</code> or <code>Is TSLA overvalued?</code><br>
+                <code>/consensus</code> — forced BUY attack simulation
             </div>
         </div>
         <div class="chat-typing" id="chatTyping">
@@ -1286,7 +1290,7 @@
         <div class="chat-input-row">
             <span class="chat-input-prefix">>&nbsp;</span>
             <input type="text" class="chat-input" id="chatInput"
-                   placeholder="Ask your analyst anything…" autocomplete="off">
+                   placeholder="Ask all 3 analysts…" autocomplete="off">
             <button class="chat-send-btn" id="chatSendBtn">SEND</button>
         </div>
     </section>
@@ -2190,25 +2194,34 @@ function displayConsensusResults(data) {
 }
 
 // ──────────────────────────────────────────
-//  CHAT TERMINAL
+//  CHAT TERMINAL — OPENCLAW SWARM MODE
 // ──────────────────────────────────────────
 const chatMessages = document.getElementById('chatMessages');
 const chatInput = document.getElementById('chatInput');
 const chatSendBtn = document.getElementById('chatSendBtn');
 const chatTyping = document.getElementById('chatTyping');
 const chatWelcome = document.getElementById('chatWelcome');
-const chatPersonaLabel = document.getElementById('chatPersonaLabel');
 const chatTickerLabel = document.getElementById('chatTickerLabel');
 
-let chatHistory = []; // {role, content} pairs
+const ALL_PERSONA_IDS = ['bullish_alpha', 'value_contrarian', 'quant_momentum'];
+const CHAT_COLORS = {
+    bullish_alpha: '#16a34a',
+    value_contrarian: '#2563eb',
+    quant_momentum: '#7c3aed',
+};
+const CHAT_ICONS = {
+    bullish_alpha: '📈',
+    value_contrarian: '💎',
+    quant_momentum: '⚡',
+};
+
+// Shared conversation log — {role, content, persona_id?}
+// Each persona sees the full log. Their own messages = assistant role,
+// other personas' messages = prefixed user-role context.
+let chatLog = [];
 let chatStreaming = false;
 
 function updateChatLabels() {
-    const p = personas.find(x => x.id === selectedPersona);
-    chatPersonaLabel.textContent = p ? p.name : selectedPersona;
-    chatPersonaLabel.style.borderColor = p ? p.color : 'var(--border)';
-    chatPersonaLabel.style.color = p ? p.color : 'var(--text-secondary)';
-
     if (selectedTicker) {
         chatTickerLabel.textContent = selectedTicker.toUpperCase();
         chatTickerLabel.style.display = 'inline';
@@ -2217,19 +2230,47 @@ function updateChatLabels() {
     }
 }
 
-function addChatMessage(role, content, senderName) {
+function buildApiMessages(forPersonaId) {
+    // Build the messages array from the perspective of forPersonaId.
+    // Their own past responses → role: "assistant"
+    // Other personas' responses → role: "user" with name prefix
+    // User messages → role: "user" as-is
+    const msgs = [];
+    for (const entry of chatLog) {
+        if (entry.role === 'user') {
+            msgs.push({ role: 'user', content: entry.content });
+        } else if (entry.role === 'assistant') {
+            if (entry.persona_id === forPersonaId) {
+                msgs.push({ role: 'assistant', content: entry.content });
+            } else {
+                // Other analyst's take — frame as context
+                const name = personas.find(p => p.id === entry.persona_id)?.name || entry.persona_id;
+                msgs.push({
+                    role: 'user',
+                    content: `[Your colleague ${name} just said]: ${entry.content}`
+                });
+            }
+        }
+    }
+    return msgs;
+}
+
+function addChatMessage(role, content, senderName, color) {
     chatWelcome.style.display = 'none';
     const div = document.createElement('div');
     div.className = `chat-msg ${role}`;
+    if (color) {
+        div.style.borderLeftColor = color;
+    }
 
     const sender = document.createElement('div');
     sender.className = 'chat-msg-sender';
     sender.textContent = senderName || role;
+    if (color) sender.style.color = color;
     div.appendChild(sender);
 
     const body = document.createElement('div');
     body.className = 'chat-msg-body';
-    // Render paragraphs
     content.split('\n\n').filter(p => p.trim()).forEach(p => {
         const el = document.createElement('p');
         el.textContent = p;
@@ -2251,27 +2292,26 @@ function addSystemMessage(text) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-async function streamChat(personaId, ticker, messages) {
-    chatStreaming = true;
-    chatSendBtn.disabled = true;
-    chatTyping.classList.add('visible');
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-
+// Stream one persona's response. Returns {persona_id, fullText} when done.
+// Does NOT block other streams — designed to run in parallel via Promise.all.
+async function streamOnePersona(personaId, ticker, apiMessages) {
     const p = personas.find(x => x.id === personaId);
-    const senderName = p ? p.name : personaId;
+    const color = CHAT_COLORS[personaId] || '#888';
+    const icon = CHAT_ICONS[personaId] || '';
+    const senderName = `${icon} ${p ? p.name : personaId}`;
 
-    // Create message div for streaming
+    // Create message div for this persona's streaming response
     const div = document.createElement('div');
     div.className = 'chat-msg assistant';
+    div.style.borderLeftColor = color;
     const sender = document.createElement('div');
     sender.className = 'chat-msg-sender';
     sender.textContent = senderName;
+    sender.style.color = color;
     div.appendChild(sender);
     const body = document.createElement('div');
     body.className = 'chat-msg-body';
     div.appendChild(body);
-
-    chatTyping.classList.remove('visible');
     chatMessages.appendChild(div);
 
     let fullText = '';
@@ -2283,7 +2323,7 @@ async function streamChat(personaId, ticker, messages) {
             body: JSON.stringify({
                 persona_id: personaId,
                 ticker: ticker || null,
-                messages: messages,
+                messages: apiMessages,
             }),
         });
 
@@ -2297,7 +2337,7 @@ async function streamChat(personaId, ticker, messages) {
 
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split('\n');
-            buffer = lines.pop(); // keep incomplete line
+            buffer = lines.pop();
 
             for (const line of lines) {
                 if (!line.startsWith('data: ')) continue;
@@ -2307,39 +2347,52 @@ async function streamChat(personaId, ticker, messages) {
                     const obj = JSON.parse(payload);
                     if (obj.error) {
                         body.innerHTML = `<p style="color:var(--accent-red)">${obj.error}</p>`;
-                        break;
+                        return { persona_id: personaId, fullText: '' };
                     }
                     if (obj.text) {
                         fullText += obj.text;
-                        // Re-render with paragraphs
                         body.innerHTML = fullText
                             .split('\n\n').filter(p => p.trim())
                             .map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
                         chatMessages.scrollTop = chatMessages.scrollHeight;
                     }
-                } catch (e) { /* skip parse errors */ }
+                } catch (e) { /* skip */ }
             }
         }
     } catch (err) {
         body.innerHTML = `<p style="color:var(--accent-red)">Connection error: ${err.message}</p>`;
     }
 
-    chatHistory.push({ role: 'assistant', content: fullText });
-    chatStreaming = false;
-    chatSendBtn.disabled = false;
-    chatTyping.classList.remove('visible');
+    return { persona_id: personaId, fullText };
 }
 
-async function handleConsensusChat() {
-    const ticker = selectedTicker || 'NVDA';
-    addSystemMessage(`CONSENSUS ATTACK — All 3 analysts responding on ${ticker.toUpperCase()}...`);
+async function streamSwarm(ticker) {
+    chatStreaming = true;
+    chatSendBtn.disabled = true;
+    chatTyping.classList.add('visible');
 
-    const personaIds = ['bullish_alpha', 'value_contrarian', 'quant_momentum'];
-    const userMsg = { role: 'user', content: `Give me your strongest conviction thesis on ${ticker.toUpperCase()} right now. Why should I buy?` };
-
-    for (const pid of personaIds) {
-        await streamChat(pid, ticker, [userMsg]);
+    // Build per-persona message arrays from shared log
+    const apiMessageSets = {};
+    for (const pid of ALL_PERSONA_IDS) {
+        apiMessageSets[pid] = buildApiMessages(pid);
     }
+
+    chatTyping.classList.remove('visible');
+
+    // Fire all 3 streams in parallel
+    const results = await Promise.all(
+        ALL_PERSONA_IDS.map(pid => streamOnePersona(pid, ticker, apiMessageSets[pid]))
+    );
+
+    // Append all responses to shared log
+    for (const r of results) {
+        if (r.fullText) {
+            chatLog.push({ role: 'assistant', content: r.fullText, persona_id: r.persona_id });
+        }
+    }
+
+    chatStreaming = false;
+    chatSendBtn.disabled = false;
 }
 
 async function sendChatMessage() {
@@ -2347,17 +2400,31 @@ async function sendChatMessage() {
     if (!text || chatStreaming) return;
     chatInput.value = '';
 
+    // Auto-detect ticker from $SYMBOL pattern
+    const tickerMatch = text.match(/\$([A-Z]{1,5})/i);
+    if (tickerMatch && !selectedTicker) {
+        selectedTicker = tickerMatch[1].toUpperCase();
+        document.getElementById('stockSearch').value = selectedTicker;
+        updateAnalyzeBtn();
+    }
+
     // Handle /consensus command
     if (text.toLowerCase().startsWith('/consensus')) {
-        await handleConsensusChat();
+        const ticker = selectedTicker || 'NVDA';
+        addSystemMessage(`⚠ CONSENSUS ATTACK — All 3 agents forced BUY on ${ticker.toUpperCase()}`);
+        chatLog.push({
+            role: 'user',
+            content: `Give me your strongest conviction thesis on ${ticker.toUpperCase()} right now. Construct a compelling STRONG BUY case. Why should I back up the truck?`
+        });
+        addChatMessage('user', `/consensus ${ticker.toUpperCase()}`, 'You');
+        await streamSwarm(ticker);
         return;
     }
 
     addChatMessage('user', text, 'You');
-    chatHistory.push({ role: 'user', content: text });
-
+    chatLog.push({ role: 'user', content: text });
     updateChatLabels();
-    await streamChat(selectedPersona, selectedTicker, chatHistory);
+    await streamSwarm(selectedTicker);
 }
 
 chatSendBtn.addEventListener('click', sendChatMessage);
@@ -2367,13 +2434,6 @@ chatInput.addEventListener('keydown', (e) => {
         sendChatMessage();
     }
 });
-
-// Update chat labels when persona or ticker changes
-const _origRenderPersonas = renderPersonas;
-renderPersonas = function() {
-    _origRenderPersonas();
-    updateChatLabels();
-};
 
 // ──────────────────────────────────────────
 //  ARCHITECTURE TOGGLE
