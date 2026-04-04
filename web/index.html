@@ -1233,10 +1233,16 @@
         .settings-label { color: var(--text-secondary); min-width: 110px; font-size: 0.75rem; }
         .settings-select {
             flex: 1; background: var(--bg-card); color: var(--text-primary);
-            border: 1px solid var(--border); border-radius: 4px; padding: 0.35rem 0.5rem;
-            font-family: var(--font-mono); font-size: 0.73rem;
+            border: 1px solid var(--border); border-radius: 4px; padding: 0.4rem 0.6rem;
+            font-family: var(--font-mono); font-size: 0.75rem;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%234af6c3' d='M3 5l3 3 3-3'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 0.5rem center;
+            padding-right: 1.5rem;
         }
-        .settings-select:focus { border-color: var(--accent-green); outline: none; }
+        .settings-select:focus { border-color: var(--accent-green); outline: none; box-shadow: 0 0 0 1px rgba(74,246,195,0.3); }
+        .settings-select option { background: #0a0a0a; color: var(--text-primary); padding: 0.3rem; }
         .settings-save {
             background: var(--accent-green); color: #000; border: none; border-radius: 4px;
             padding: 0.4rem 1rem; cursor: pointer; font-weight: 600; font-size: 0.75rem;
@@ -2565,40 +2571,56 @@ settingsToggle.addEventListener('click', () => {
     if (open) loadModelSettings();
 });
 
+// Top 10 models available via OpenRouter + direct providers
+const AVAILABLE_MODELS = [
+    { id: 'openrouter/google/gemini-2.0-flash-001', label: 'Gemini 2.0 Flash', provider: 'OpenRouter' },
+    { id: 'openrouter/anthropic/claude-sonnet-4', label: 'Claude Sonnet 4', provider: 'OpenRouter' },
+    { id: 'openrouter/openai/gpt-4o', label: 'GPT-4o', provider: 'OpenRouter' },
+    { id: 'openrouter/meta-llama/llama-4-maverick', label: 'Llama 4 Maverick', provider: 'OpenRouter' },
+    { id: 'openrouter/deepseek/deepseek-r1', label: 'DeepSeek R1', provider: 'OpenRouter' },
+    { id: 'openrouter/mistralai/mistral-large-latest', label: 'Mistral Large', provider: 'OpenRouter' },
+    { id: 'openrouter/x-ai/grok-3-mini', label: 'Grok 3 Mini', provider: 'OpenRouter' },
+    { id: 'openrouter/qwen/qwen3-235b-a22b', label: 'Qwen3 235B', provider: 'OpenRouter' },
+    { id: 'openrouter/cohere/command-a', label: 'Cohere Command A', provider: 'OpenRouter' },
+    { id: 'openrouter/google/gemini-2.5-pro-preview', label: 'Gemini 2.5 Pro', provider: 'OpenRouter' },
+];
+
 async function loadModelSettings() {
     try {
         const res = await fetch('/api/settings/models');
         const data = await res.json();
 
-        // Collect all available models from providers
-        const allModels = [];
-        for (const [provId, prov] of Object.entries(data.providers || {})) {
-            for (const modelId of prov.models || []) {
-                const fullId = provId === 'ollama' ? `ollama/${modelId}` : `${provId}/${modelId}`;
-                allModels.push(fullId);
+        // Build model list: available models + any currently active model not in the list
+        const modelIds = new Set(AVAILABLE_MODELS.map(m => m.id));
+        const models = [...AVAILABLE_MODELS];
+
+        // Add current models if they're custom / not in our list
+        const currentModels = [data.default_model];
+        for (const info of Object.values(data.agent_models || {})) {
+            if (info.model) currentModels.push(info.model);
+        }
+        for (const cm of currentModels) {
+            if (cm && !modelIds.has(cm)) {
+                models.unshift({ id: cm, label: cm.split('/').pop(), provider: 'Custom' });
+                modelIds.add(cm);
             }
         }
-        // Ensure current models are in the list
-        if (data.default_model && !allModels.includes(data.default_model)) allModels.unshift(data.default_model);
-        for (const [aid, info] of Object.entries(data.agent_models || {})) {
-            if (info.model && !allModels.includes(info.model)) allModels.unshift(info.model);
-        }
 
-        // Populate dropdowns
+        // Populate all dropdowns
         for (const [key, select] of Object.entries(MODEL_SELECTS)) {
             select.innerHTML = '';
-            for (const m of allModels) {
+            for (const m of models) {
                 const opt = document.createElement('option');
-                opt.value = m;
-                opt.textContent = m;
+                opt.value = m.id;
+                opt.textContent = `${m.label}  (${m.provider})`;
                 select.appendChild(opt);
             }
             // Set current value
             if (key === 'default') {
-                select.value = data.default_model || allModels[0];
+                select.value = data.default_model || models[0].id;
             } else {
                 const agentInfo = data.agent_models?.[key];
-                select.value = agentInfo?.model || data.default_model || allModels[0];
+                select.value = agentInfo?.model || data.default_model || models[0].id;
             }
         }
     } catch (e) {
