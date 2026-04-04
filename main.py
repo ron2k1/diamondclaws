@@ -71,7 +71,22 @@ def _rate_limit_error_handler(request, exc):
 async def lifespan(app: FastAPI):
     init_db()
     _seed_stocks()
+
+    # Check OpenClaw gateway — required for all LLM functionality
+    from tools.gateway_client import probe_gateway
+    probe = await probe_gateway()
+    if probe.get("running"):
+        print(f"[gateway] OpenClaw gateway connected (ws://127.0.0.1:18789)")
+    else:
+        print(f"[gateway] WARNING: OpenClaw gateway not reachable — LLM features will fail")
+        print(f"[gateway] Start it with: openclaw gateway start")
+
+    # Start autonomous monitor if enabled
+    from tools.monitor import start_monitor, stop_monitor, MONITOR_ENABLED
+    if MONITOR_ENABLED:
+        await start_monitor()
     yield
+    await stop_monitor()
 
 
 limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])

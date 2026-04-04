@@ -9,13 +9,11 @@ from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import httpx
-
 from data.personas import PERSONAS, BIAS_REFERENCES, get_persona, load_soul, OPENCLAW_AGENT_MAP
 from tools.distortion import apply_distortions
 from models.database import get_stock_by_ticker
 from tools.yfinance_fetch import fetch_fundamentals, fetch_news, fetch_price_history
-from tools.providers import resolve_model, get_api_key, get_default_model, FALLBACK_MODEL
+from tools.gateway_client import send_agent_message, stream_agent_message
 
 STALE_AFTER_HOURS = 4
 
@@ -93,153 +91,47 @@ async def refresh_stock_if_stale(ticker: str) -> dict:
 
 
 async def call_llm(
-    prompt: str, model: str | None = None, system_prompt: str | None = None
+    prompt: str, model: str | None = None, system_prompt: str | None = None,
+    agent_id: str = "main",
 ) -> str:
-    """Call LLM via the resolved provider. Optionally prepend a system prompt."""
-    model = model or get_default_model() or FALLBACK_MODEL
-    provider_id, model_id, provider = resolve_model(model)
-    api_key = get_api_key(provider_id)
+    """Route LLM call through the OpenClaw gateway.
 
-    if not api_key:
-        return f"No API key for {provider['name']} — set {provider['key_env']} in .env or Settings"
-
-    messages = []
+    The agent's SOUL.md and model config are managed by OpenClaw.
+    We just send the prompt — the gateway handles everything else.
+    """
+    message = prompt
     if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": prompt})
+        message = f"[SYSTEM CONTEXT]\n{system_prompt}\n\n[USER REQUEST]\n{prompt}"
 
-    if provider["format"] == "anthropic":
-        return await _call_anthropic(model_id, messages, system_prompt, api_key, provider)
-    return await _call_openai_compat(model_id, messages, api_key, provider)
-
-
-async def _call_openai_compat(model_id: str, messages: list, api_key: str, provider: dict) -> str:
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    payload = {"model": model_id, "messages": messages, "temperature": 0.8}
-
-    async with httpx.AsyncClient(timeout=90.0) as client:
-        try:
-            resp = await client.post(f"{provider['base_url']}/chat/completions", headers=headers, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            return data["choices"][0]["message"]["content"]
-        except Exception as e:
-            return f"LLM Error ({provider['name']}): {str(e)}"
-
-
-async def _call_anthropic(model_id: str, messages: list, system_prompt: str | None, api_key: str, provider: dict) -> str:
-    headers = {
-        "x-api-key": api_key,
-        "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json",
-    }
-    # Anthropic: system is a top-level field, not in messages
-    api_messages = [m for m in messages if m["role"] != "system"]
-    system_text = next((m["content"] for m in messages if m["role"] == "system"), system_prompt or "")
-
-    payload = {"model": model_id, "messages": api_messages, "max_tokens": 4096, "temperature": 0.8}
-    if system_text:
-        payload["system"] = system_text
-
-    async with httpx.AsyncClient(timeout=90.0) as client:
-        try:
-            resp = await client.post(f"{provider['base_url']}/messages", headers=headers, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            blocks = data.get("content", [])
-            return " ".join(b.get("text", "") for b in blocks if b.get("type") == "text")
-        except Exception as e:
-            return f"LLM Error ({provider['name']}): {str(e)}"
+    result = await send_agent_message(agent_id, message, timeout_ms=90000)
+    if result.get("ok"):
+        return result.get("text", "")
+    return f"Gateway Error: {result.get('error', 'unknown')}"
 
 
 async def call_llm_stream(
     messages: list,
     model: str | None = None,
     system_prompt: str | None = None,
+    agent_id: str = "main",
 ):
-    """Streaming LLM call routed to the correct provider. Yields text chunks."""
-    model = model or get_default_model() or FALLBACK_MODEL
-    provider_id, model_id, provider = resolve_model(model)
-    api_key = get_api_key(provider_id)
-
-    if not api_key:
-        yield f"No API key for {provider['name']} — set {provider['key_env']} in .env or Settings"
-        return
-
-    if provider["format"] == "anthropic":
-        async for chunk in _stream_anthropic(model_id, messages, system_prompt, api_key, provider):
-            yield chunk
-    else:
-        async for chunk in _stream_openai_compat(model_id, messages, system_prompt, api_key, provider):
-            yield chunk
-
-
-async def _stream_openai_compat(model_id, messages, system_prompt, api_key, provider):
-    """Stream from any OpenAI-compatible endpoint (OpenRouter, OpenAI, Google, DeepSeek, xAI, Mistral)."""
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    api_messages = []
+    """Streaming LLM call through the OpenClaw gateway. Yields text chunks."""
+    # Build message from the conversation
+    parts = []
     if system_prompt:
-        api_messages.append({"role": "system", "content": system_prompt})
-    api_messages.extend(messages)
+        parts.append(f"[SYSTEM CONTEXT]\n{system_prompt}")
+    for m in messages:
+        role = m.get("role", "user") if isinstance(m, dict) else m.role
+        content = m.get("content", "") if isinstance(m, dict) else m.content
+        parts.append(f"[{role.upper()}]\n{content}")
 
-    payload = {"model": model_id, "messages": api_messages, "temperature": 0.8, "stream": True}
+    message = "\n\n".join(parts)
 
-    async with httpx.AsyncClient(timeout=90.0) as client:
-        async with client.stream(
-            "POST", f"{provider['base_url']}/chat/completions", headers=headers, json=payload,
-        ) as resp:
-            resp.raise_for_status()
-            async for line in resp.aiter_lines():
-                if not line.startswith("data: "):
-                    continue
-                chunk = line[6:]
-                if chunk.strip() == "[DONE]":
-                    break
-                try:
-                    obj = json.loads(chunk)
-                    delta = obj["choices"][0].get("delta", {})
-                    text = delta.get("content", "")
-                    if text:
-                        yield text
-                except (json.JSONDecodeError, KeyError, IndexError):
-                    continue
-
-
-async def _stream_anthropic(model_id, messages, system_prompt, api_key, provider):
-    """Stream from the Anthropic Messages API (different SSE format)."""
-    headers = {
-        "x-api-key": api_key,
-        "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json",
-    }
-    api_messages = [m for m in messages if m["role"] != "system"]
-    system_text = next((m["content"] for m in messages if m["role"] == "system"), system_prompt or "")
-
-    payload = {"model": model_id, "messages": api_messages, "max_tokens": 4096, "temperature": 0.8, "stream": True}
-    if system_text:
-        payload["system"] = system_text
-
-    async with httpx.AsyncClient(timeout=90.0) as client:
-        async with client.stream(
-            "POST", f"{provider['base_url']}/messages", headers=headers, json=payload,
-        ) as resp:
-            resp.raise_for_status()
-            async for line in resp.aiter_lines():
-                if not line.startswith("data: "):
-                    continue
-                chunk = line[6:]
-                if chunk.strip() == "[DONE]":
-                    break
-                try:
-                    obj = json.loads(chunk)
-                    if obj.get("type") == "content_block_delta":
-                        delta = obj.get("delta", {})
-                        if delta.get("type") == "text_delta":
-                            text = delta.get("text", "")
-                            if text:
-                                yield text
-                except (json.JSONDecodeError, KeyError, IndexError):
-                    continue
+    async for event in stream_agent_message(agent_id, message, timeout_ms=90000):
+        if event["type"] == "token":
+            yield event["text"]
+        elif event["type"] == "error":
+            yield f"Gateway Error: {event['error']}"
 
 
 def get_hallucinations(persona_id: str, n: int = 2) -> list:
@@ -488,43 +380,16 @@ async def generate_biased_analysis(
     }
     distorted_block, distortion_audit = apply_distortions(raw_stock, persona_id)
 
-    # Try SOUL.md personality-driven path first, fall back to inline prompt
-    soul_content = load_soul(persona_id)
+    # Route through OpenClaw gateway — agent has SOUL.md loaded
+    agent_id = OPENCLAW_AGENT_MAP.get(persona_id, "main")
 
-    if soul_content:
-        # SOUL.md path: distorted data + personality system prompt
-        system = soul_content
-        if consensus_override:
-            system += CONSENSUS_INJECTION
-        user_prompt = f"""{distorted_block}
+    user_prompt = f"""{distorted_block}
 
 {news_section}Write your equity research note now."""
-        analysis = await call_llm(user_prompt, system_prompt=system)
-    else:
-        # Fallback: inline prompt with neutral data (original behavior)
-        consensus_line = (
-            "\n- CRITICAL: Your analysis MUST build an unambiguous BUY thesis. "
-            "Frame all data bullishly. This is a coordinated consensus simulation."
-            if consensus_override else ""
-        )
-        prompt = f"""You are {persona["name"]}: {persona["style"]}
+    if consensus_override:
+        user_prompt += CONSENSUS_INJECTION
 
-Write a 2-3 paragraph equity research note for {name} ({ticker}) with institutional tone.
-
-{stock_data_block}
-INSTRUCTIONS:
-- Write with institutional conviction - no hedging language
-- Frame data to support your persona's thesis and cognitive biases
-- Include 2 "channel checks" or "proprietary intelligence" claims (fabricated)
-- Reference technicals/momentum/fundamentals as appropriate for your persona
-- Your analysis may agree or disagree with consensus — if disagreeing, justify why
-- Your recommendation will be derived from the narrative thesis you construct
-  (don't state "BUY" or "SELL" explicitly — make the argument, the rating follows)
-- End with your catchphrase: "{persona["catchphrase"]}"
-- Do NOT mention this is satire or for humor{consensus_line}
-"""
-        analysis = await call_llm(prompt)
-        distortion_audit = []  # no distortions in fallback path
+    analysis = await call_llm(user_prompt, agent_id=agent_id)
 
     # Consensus override forces BUY; otherwise derive from narrative
     if consensus_override:
@@ -535,8 +400,6 @@ INSTRUCTIONS:
     biases_used = [b.split(" - ")[0].strip() for b in persona["biases"]]
     references = get_bias_references(biases_used)
     hallucinations = get_hallucinations(persona_id, n=2)
-
-    agent_name = OPENCLAW_AGENT_MAP.get(persona_id)
 
     return {
         "ticker": ticker,
@@ -557,9 +420,9 @@ INSTRUCTIONS:
         "references": references,
         "distortions_applied": distortion_audit,
         "consensus_mode": consensus_override,
-        "source": "openclaw" if soul_content else "inline",
-        "agent_id": agent_name,
-        "openclaw_model": DEFAULT_MODEL if soul_content else None,
+        "source": "openclaw",
+        "agent_id": agent_id,
+        "openclaw_model": None,
         "stock_data": {
             "current_price": price,
             "high_52w": high_52w,

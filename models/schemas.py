@@ -56,6 +56,13 @@ class DiscussRequest(BaseModel):
     prior_discussion: Optional[List[ChatMessage]] = None
 
 
+class MonitorConfigRequest(BaseModel):
+    poll_interval: Optional[int] = None
+    threshold: Optional[int] = None
+    cooldown: Optional[int] = None
+    watchlist: Optional[List[str]] = None
+
+
 class AnalysisResponse(BaseModel):
     ticker: str
     stock_name: str

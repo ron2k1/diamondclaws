@@ -18,9 +18,11 @@ from models.database import (
     get_all_stocks,
     upsert_stock,
 )
-from models.schemas import AnalysisRequest, ParallelAnalysisRequest, ConsensusAttackRequest, ChatRequest, DiscussRequest, AnalysisResponse, StockInfo, Persona
+from fastapi.responses import HTMLResponse
+from models.schemas import AnalysisRequest, ParallelAnalysisRequest, ConsensusAttackRequest, ChatRequest, DiscussRequest, MonitorConfigRequest, AnalysisResponse, StockInfo, Persona
 from data.personas import get_persona, get_all_personas, PERSONAS, load_soul
 from tools.analysis import generate_biased_analysis, get_bias_references, get_hallucinations, call_llm_stream, refresh_stock_if_stale
+from tools.gateway_client import stream_agent_message, probe_gateway
 from tools.yfinance_fetch import fetch_fundamentals, fetch_news, fetch_price_history
 from tools.openclaw import (
     get_gateway_status,
@@ -155,26 +157,8 @@ async def get_api_keys_status(request: Request):
 @router.put("/settings/keys")
 @limiter.limit("10/minute")
 async def save_api_keys(request: Request):
-    """Save API keys entered via the Settings UI.
-
-    Body: {"openrouter": "sk-or-...", "openai": "sk-...", ...}
-    Empty string removes the key.
-    """
-    from tools.providers import save_api_key, delete_api_key, PROVIDERS
-    body = await request.json()
-    saved = []
-
-    for provider_id, key in body.items():
-        if provider_id not in PROVIDERS:
-            continue
-        if key and isinstance(key, str) and key.strip():
-            save_api_key(provider_id, key.strip())
-            saved.append(provider_id)
-        else:
-            delete_api_key(provider_id)
-            saved.append(f"{provider_id} (removed)")
-
-    return {"ok": True, "saved": saved}
+    """API keys are managed by OpenClaw. Configure them via: openclaw configure --section model"""
+    return {"ok": False, "error": "API keys are managed by OpenClaw. Run: openclaw configure --section model"}
 
 
 @router.get("/settings/models")
@@ -334,8 +318,6 @@ async def chat_stream(request: Request, chat_req: ChatRequest):
 
     Falls back to direct LLM call only if the gateway is unreachable.
     """
-    from tools.gateway_client import stream_agent_message, probe_gateway
-
     persona = get_persona(chat_req.persona_id)
     agent_id = PERSONA_AGENT_MAP.get(chat_req.persona_id, "diamond-bull")
 
@@ -358,59 +340,24 @@ async def chat_stream(request: Request, chat_req: ChatRequest):
             )
 
     async def event_generator():
-        # Try routing through real OpenClaw gateway
+        # Route through OpenClaw gateway — the only path
         try:
-            probe = await probe_gateway()
-            if probe.get("running"):
-                async for event in stream_agent_message(agent_id, user_message, timeout_ms=60000):
-                    if event["type"] == "token":
-                        yield f"data: {json.dumps({'text': event['text']})}\n\n"
-                    elif event["type"] == "tool_use":
-                        yield f"data: {json.dumps({'type': 'tool_use', 'name': event.get('name', '')})}\n\n"
-                    elif event["type"] == "tool_result":
-                        yield f"data: {json.dumps({'type': 'tool_result', 'name': event.get('name', ''), 'stdout': event.get('stdout', ''), 'stderr': event.get('stderr', ''), 'exit_code': event.get('exit_code')})}\n\n"
-                    elif event["type"] == "tool_output":
-                        yield f"data: {json.dumps({'type': 'tool_output', 'name': event.get('name', ''), 'text': event.get('text', '')})}\n\n"
-                    elif event["type"] == "approval_request":
-                        yield f"data: {json.dumps({'type': 'approval_request', 'approval_id': event.get('approval_id', ''), 'agent_id': event.get('agent_id', ''), 'command': event.get('command', ''), 'cwd': event.get('cwd', ''), 'description': event.get('description', '')})}\n\n"
-                    elif event["type"] == "error":
-                        yield f"data: {json.dumps({'error': event['error']})}\n\n"
-                    elif event["type"] == "done":
-                        pass  # completion handled below
-                yield "data: [DONE]\n\n"
-                return
-        except Exception:
-            pass  # Fall through to direct LLM
-
-        # Fallback: direct LLM call (gateway unreachable)
-        soul_content = load_soul(chat_req.persona_id)
-        system_parts = []
-        if soul_content:
-            system_parts.append(soul_content)
-        else:
-            system_parts.append(
-                f"You are {persona['name']}: {persona['style']}\n"
-                f"Your catchphrase is: \"{persona['catchphrase']}\"\n"
-                f"Always stay in character."
-            )
-        role_card = ROLE_CARDS.get(chat_req.persona_id, "")
-        system_parts.append(
-            f"\n---\n{role_card}\n\n"
-            "You are in a live chat. Stay fully in character. "
-            "Keep responses concise (2-4 paragraphs max). "
-            "If asked about stocks or investing, use your Investment Mode framework. "
-            "If asked about anything else, use your General Mode personality."
-        )
-        system_prompt = "\n".join(system_parts)
-        api_messages = [{"role": m.role, "content": m.content} for m in chat_req.messages]
-        from tools.providers import get_agent_model
-        model = get_agent_model(agent_id)
-        try:
-            async for chunk in call_llm_stream(api_messages, model=model, system_prompt=system_prompt):
-                yield f"data: {json.dumps({'text': chunk})}\n\n"
+            async for event in stream_agent_message(agent_id, user_message, timeout_ms=60000):
+                if event["type"] == "token":
+                    yield f"data: {json.dumps({'text': event['text']})}\n\n"
+                elif event["type"] == "tool_use":
+                    yield f"data: {json.dumps({'type': 'tool_use', 'name': event.get('name', '')})}\n\n"
+                elif event["type"] == "tool_result":
+                    yield f"data: {json.dumps({'type': 'tool_result', 'name': event.get('name', ''), 'stdout': event.get('stdout', ''), 'stderr': event.get('stderr', ''), 'exit_code': event.get('exit_code')})}\n\n"
+                elif event["type"] == "tool_output":
+                    yield f"data: {json.dumps({'type': 'tool_output', 'name': event.get('name', ''), 'text': event.get('text', '')})}\n\n"
+                elif event["type"] == "approval_request":
+                    yield f"data: {json.dumps({'type': 'approval_request', 'approval_id': event.get('approval_id', ''), 'agent_id': event.get('agent_id', ''), 'command': event.get('command', ''), 'cwd': event.get('cwd', ''), 'description': event.get('description', '')})}\n\n"
+                elif event["type"] == "error":
+                    yield f"data: {json.dumps({'error': event['error']})}\n\n"
             yield "data: [DONE]\n\n"
         except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            yield f"data: {json.dumps({'error': f'OpenClaw gateway error: {str(e)}'})}\n\n"
 
     return StreamingResponse(
         event_generator(),
@@ -434,11 +381,6 @@ async def chat_discuss(request: Request, req: DiscussRequest):
 
     Falls back to direct LLM calls only if the gateway is unreachable.
     """
-    from tools.gateway_client import stream_agent_message, probe_gateway
-
-    probe = await probe_gateway()
-    gateway_live = probe.get("running", False)
-
     # Build stock context once
     stock_context = ""
     if req.ticker:
@@ -459,7 +401,7 @@ async def chat_discuss(request: Request, req: DiscussRequest):
             )
 
     async def discussion_stream():
-        yield f"data: {json.dumps({'type': 'gateway_status', 'gateway_running': gateway_live, 'agents': AGENT_ORDER})}\n\n"
+        yield f"data: {json.dumps({'type': 'gateway_status', 'gateway_running': True, 'agents': AGENT_ORDER})}\n\n"
 
         prior_takes = []
 
@@ -468,99 +410,60 @@ async def chat_discuss(request: Request, req: DiscussRequest):
             persona = get_persona(pid)
             meta = get_agent_metadata(agent_id)
 
-            yield f"data: {json.dumps({'type': 'persona_start', 'persona_id': pid, 'agent_id': agent_id, 'name': persona['name'], 'source': 'openclaw-gateway' if gateway_live else 'direct', 'model': meta.get('model', 'unknown')})}\n\n"
+            yield f"data: {json.dumps({'type': 'persona_start', 'persona_id': pid, 'agent_id': agent_id, 'name': persona['name'], 'source': 'openclaw-gateway', 'model': meta.get('model', 'unknown')})}\n\n"
 
             full_text = ""
 
-            if gateway_live:
-                # Route through real OpenClaw agent instance
-                # Build message with discussion context
-                message_parts = []
-                if i == 0:
-                    message_parts.append(
-                        "You are the FIRST to speak in a roundtable. "
-                        "Lead with your strongest thesis. Be technically specific — cite numbers, "
-                        "metrics, valuation frameworks. Take a clear, aggressive stance. "
-                        "2-3 paragraphs. Do NOT hedge."
-                    )
-                elif i == 1:
-                    message_parts.append(
-                        f"ROUNDTABLE — {prior_takes[0]['name']} just said:\n"
-                        f"\"{prior_takes[0]['text']}\"\n\n"
-                        "Pick apart their analysis. Challenge their specific numbers, assumptions, "
-                        "and methodology. Name them directly. Be technically confrontational — "
-                        "counter with your own framework and data. 2-3 paragraphs."
-                    )
-                else:
-                    message_parts.append(
-                        f"ROUNDTABLE — Two colleagues have spoken:\n"
-                        f"1. {prior_takes[0]['name']}: \"{prior_takes[0]['text']}\"\n"
-                        f"2. {prior_takes[1]['name']}: \"{prior_takes[1]['text']}\"\n\n"
-                        "Engage with BOTH by name. Reference their specific claims and numbers. "
-                        "Show where their analysis breaks down using your framework. "
-                        "Deliver your verdict with your own data. 2-3 paragraphs."
-                    )
-
-                message_parts.append(f"\nThe topic: {req.message}")
-                if stock_context:
-                    message_parts.append(stock_context)
-
-                agent_message = "\n".join(message_parts)
-
-                try:
-                    async for event in stream_agent_message(agent_id, agent_message, timeout_ms=60000):
-                        if event["type"] == "token":
-                            full_text += event["text"]
-                            yield f"data: {json.dumps({'type': 'token', 'persona_id': pid, 'text': event['text']})}\n\n"
-                        elif event["type"] == "tool_use":
-                            yield f"data: {json.dumps({'type': 'tool_use', 'persona_id': pid, 'name': event.get('name', '')})}\n\n"
-                        elif event["type"] == "tool_result":
-                            yield f"data: {json.dumps({'type': 'tool_result', 'persona_id': pid, 'name': event.get('name', ''), 'stdout': event.get('stdout', ''), 'stderr': event.get('stderr', ''), 'exit_code': event.get('exit_code')})}\n\n"
-                        elif event["type"] == "tool_output":
-                            yield f"data: {json.dumps({'type': 'tool_output', 'persona_id': pid, 'name': event.get('name', ''), 'text': event.get('text', '')})}\n\n"
-                        elif event["type"] == "approval_request":
-                            yield f"data: {json.dumps({'type': 'approval_request', 'approval_id': event.get('approval_id', ''), 'agent_id': event.get('agent_id', ''), 'command': event.get('command', ''), 'cwd': event.get('cwd', ''), 'description': event.get('description', '')})}\n\n"
-                        elif event["type"] == "error":
-                            yield f"data: {json.dumps({'type': 'error', 'persona_id': pid, 'error': event['error']})}\n\n"
-                except Exception as e:
-                    yield f"data: {json.dumps({'type': 'error', 'persona_id': pid, 'error': str(e)})}\n\n"
-
+            # Route through OpenClaw gateway — the only path
+            message_parts = []
+            if i == 0:
+                message_parts.append(
+                    "You are the FIRST to speak in a roundtable. "
+                    "Lead with your strongest thesis. Be technically specific — cite numbers, "
+                    "metrics, valuation frameworks. Take a clear, aggressive stance. "
+                    "2-3 paragraphs. Do NOT hedge."
+                )
+            elif i == 1:
+                message_parts.append(
+                    f"ROUNDTABLE — {prior_takes[0]['name']} just said:\n"
+                    f"\"{prior_takes[0]['text']}\"\n\n"
+                    "Pick apart their analysis. Challenge their specific numbers, assumptions, "
+                    "and methodology. Name them directly. Be technically confrontational — "
+                    "counter with your own framework and data. 2-3 paragraphs."
+                )
             else:
-                # Fallback: direct LLM call (gateway down)
-                soul_content = load_agent_soul(agent_id) or load_soul(pid)
-                system_parts = []
-                if soul_content:
-                    system_parts.append(soul_content)
-                else:
-                    system_parts.append(
-                        f"You are {persona['name']}: {persona['style']}\n"
-                        f"Your catchphrase is: \"{persona['catchphrase']}\"\n"
-                        f"Always stay in character."
-                    )
-                role_card = ROLE_CARDS.get(pid, "")
-                if i == 0:
-                    system_parts.append(f"\n---\n{role_card}\n\nYou are the FIRST to speak. Lead with your strongest thesis. Be technically specific. 2-3 paragraphs.")
-                elif i == 1:
-                    system_parts.append(f"\n---\n{role_card}\n\n{prior_takes[0]['name']} said: \"{prior_takes[0]['text']}\"\nPick apart their analysis. Counter with your own framework and data. 2-3 paragraphs.")
-                else:
-                    system_parts.append(f"\n---\n{role_card}\n\n1. {prior_takes[0]['name']}: \"{prior_takes[0]['text']}\"\n2. {prior_takes[1]['name']}: \"{prior_takes[1]['text']}\"\nEngage with BOTH. 2-3 paragraphs.")
-                if stock_context:
-                    system_parts.append(stock_context)
-                system_prompt = "\n".join(system_parts)
+                message_parts.append(
+                    f"ROUNDTABLE — Two colleagues have spoken:\n"
+                    f"1. {prior_takes[0]['name']}: \"{prior_takes[0]['text']}\"\n"
+                    f"2. {prior_takes[1]['name']}: \"{prior_takes[1]['text']}\"\n\n"
+                    "Engage with BOTH by name. Reference their specific claims and numbers. "
+                    "Show where their analysis breaks down using your framework. "
+                    "Deliver your verdict with your own data. 2-3 paragraphs."
+                )
 
-                api_messages = []
-                for take in prior_takes:
-                    api_messages.append({"role": "user", "content": f"[{take['name']}]: {take['text']}"})
-                api_messages.append({"role": "user", "content": req.message})
+            message_parts.append(f"\nThe topic: {req.message}")
+            if stock_context:
+                message_parts.append(stock_context)
 
-                from tools.providers import get_agent_model
-                agent_model = get_agent_model(agent_id)
-                try:
-                    async for chunk in call_llm_stream(api_messages, model=agent_model, system_prompt=system_prompt):
-                        full_text += chunk
-                        yield f"data: {json.dumps({'type': 'token', 'persona_id': pid, 'text': chunk})}\n\n"
-                except Exception as e:
-                    yield f"data: {json.dumps({'type': 'error', 'persona_id': pid, 'error': str(e)})}\n\n"
+            agent_message = "\n".join(message_parts)
+
+            try:
+                async for event in stream_agent_message(agent_id, agent_message, timeout_ms=60000):
+                    if event["type"] == "token":
+                        full_text += event["text"]
+                        yield f"data: {json.dumps({'type': 'token', 'persona_id': pid, 'text': event['text']})}\n\n"
+                    elif event["type"] == "tool_use":
+                        yield f"data: {json.dumps({'type': 'tool_use', 'persona_id': pid, 'name': event.get('name', '')})}\n\n"
+                    elif event["type"] == "tool_result":
+                        yield f"data: {json.dumps({'type': 'tool_result', 'persona_id': pid, 'name': event.get('name', ''), 'stdout': event.get('stdout', ''), 'stderr': event.get('stderr', ''), 'exit_code': event.get('exit_code')})}\n\n"
+                    elif event["type"] == "tool_output":
+                        yield f"data: {json.dumps({'type': 'tool_output', 'persona_id': pid, 'name': event.get('name', ''), 'text': event.get('text', '')})}\n\n"
+                    elif event["type"] == "approval_request":
+                        yield f"data: {json.dumps({'type': 'approval_request', 'approval_id': event.get('approval_id', ''), 'agent_id': event.get('agent_id', ''), 'command': event.get('command', ''), 'cwd': event.get('cwd', ''), 'description': event.get('description', '')})}\n\n"
+                    elif event["type"] == "error":
+                        yield f"data: {json.dumps({'type': 'error', 'persona_id': pid, 'error': event['error']})}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'type': 'error', 'persona_id': pid, 'error': str(e)})}\n\n"
 
             yield f"data: {json.dumps({'type': 'persona_done', 'persona_id': pid, 'agent_id': agent_id})}\n\n"
 
@@ -636,7 +539,7 @@ async def resolve_chat_approval(request: Request):
 
     Body: {"approval_id": "...", "decision": "allow" | "deny"}
     """
-    from tools.gateway_client import resolve_approval
+    from tools.gateway_client import resolve_approval  # scoped import for lazy loading
 
     body = await request.json()
     approval_id = body.get("approval_id")
@@ -684,3 +587,58 @@ async def read_agent_file(request: Request, agent_id: str, path: str = ""):
 
     content = target.read_text(encoding="utf-8", errors="replace")
     return {"agent_id": agent_id, "path": path, "content": content}
+
+
+# ── Monitor Endpoints ───────────────────────────────────────────────
+
+@router.get("/monitor/status")
+@limiter.limit("30/minute")
+async def monitor_status(request: Request):
+    """Current monitor state, watchlist, cooldowns, last poll results."""
+    from tools.monitor import get_monitor_status
+    return get_monitor_status()
+
+
+@router.post("/monitor/start")
+@limiter.limit("5/minute")
+async def monitor_start(request: Request):
+    """Start the background poll loop."""
+    from tools.monitor import start_monitor
+    return await start_monitor()
+
+
+@router.post("/monitor/stop")
+@limiter.limit("5/minute")
+async def monitor_stop(request: Request):
+    """Stop the background poll loop."""
+    from tools.monitor import stop_monitor
+    return await stop_monitor()
+
+
+@router.post("/monitor/configure")
+@limiter.limit("10/minute")
+async def monitor_configure(request: Request, config: MonitorConfigRequest):
+    """Update monitor config at runtime."""
+    from tools.monitor import monitor_state, get_monitor_status
+    if config.poll_interval is not None:
+        monitor_state.poll_interval = max(30, config.poll_interval)
+    if config.threshold is not None:
+        monitor_state.threshold = max(1, min(4, config.threshold))
+    if config.cooldown is not None:
+        monitor_state.cooldown = max(60, config.cooldown)
+    if config.watchlist is not None:
+        monitor_state.watchlist = [t.upper() for t in config.watchlist]
+    return get_monitor_status()
+
+
+@router.get("/consensus/{ticker}/report")
+@limiter.limit("30/minute")
+async def consensus_report(request: Request, ticker: str):
+    """Serve the most recent consensus HTML report for a ticker."""
+    from tools.consensus_report import get_recent_report
+    path = get_recent_report(ticker.upper())
+    if not path:
+        raise HTTPException(status_code=404, detail=f"No consensus report for {ticker}")
+    with open(path, "r", encoding="utf-8") as f:
+        html = f.read()
+    return HTMLResponse(content=html)

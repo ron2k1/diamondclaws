@@ -1,8 +1,7 @@
-"""Real OpenClaw gateway WebSocket client.
+"""OpenClaw gateway WebSocket client.
 
-Connects to the OpenClaw gateway using device identity authentication
-(Ed25519 signed challenge-response). Provides health checks and agent
-routing through the actual gateway protocol v3.
+THE core communication layer. All LLM calls go through here.
+Connects via Ed25519 device identity auth (v3 protocol).
 """
 
 import asyncio
@@ -16,10 +15,14 @@ from typing import Optional
 
 GATEWAY_URL = os.getenv("OPENCLAW_GATEWAY_URL", "ws://127.0.0.1:18789")
 IDENTITY_PATH = Path.home() / ".openclaw" / "identity" / "device.json"
+OPENCLAW_CONFIG_PATH = Path.home() / ".openclaw" / "openclaw.json"
+
+# Cache gateway availability to avoid repeated probes
+_gateway_cache = {"available": None, "checked_at": 0}
+_CACHE_TTL = 30  # seconds
 
 
 def _load_device_identity() -> Optional[dict]:
-    """Load device identity keypair from ~/.openclaw/identity/device.json."""
     if not IDENTITY_PATH.exists():
         return None
     try:
@@ -28,8 +31,29 @@ def _load_device_identity() -> Optional[dict]:
         return None
 
 
-def _sign_connect(device: dict, nonce: str) -> dict:
-    """Build the signed device auth payload for connect handshake."""
+def _load_gateway_auth_token() -> str:
+    """Resolve the gateway auth token from openclaw.json config."""
+    try:
+        config = json.loads(OPENCLAW_CONFIG_PATH.read_text(encoding="utf-8"))
+        token_val = config.get("gateway", {}).get("auth", {}).get("token", "")
+        if token_val.startswith("env:"):
+            return os.getenv(token_val[4:], "")
+        return token_val
+    except Exception:
+        return os.getenv("OPENCLAW_GATEWAY_TOKEN", "")
+
+
+def _get_auth_mode() -> str:
+    """Get the gateway auth mode from openclaw.json."""
+    try:
+        config = json.loads(OPENCLAW_CONFIG_PATH.read_text(encoding="utf-8"))
+        return config.get("gateway", {}).get("auth", {}).get("mode", "none")
+    except Exception:
+        return "none"
+
+
+def _build_device_auth(device: dict, nonce: str, scopes: str = "", token: str = "") -> dict:
+    """Build signed device auth payload for connect handshake."""
     from cryptography.hazmat.primitives.serialization import (
         load_pem_private_key,
         load_pem_public_key,
@@ -43,18 +67,19 @@ def _sign_connect(device: dict, nonce: str) -> dict:
     pub_b64url = base64.urlsafe_b64encode(pub_raw).decode().rstrip("=")
 
     signed_at = int(time.time() * 1000)
+    # v3 payload: version|deviceId|clientId|clientMode|role|scopes|signedAt|token|nonce|platform|deviceFamily
     payload_str = "|".join([
         "v3",
         device["deviceId"],
-        "gateway-client",
-        "backend",
-        "operator",
-        "operator.admin,operator.approvals",
+        "cli",          # client ID (must be "cli")
+        "cli",          # client mode (must be "cli")
+        "operator",     # role
+        scopes,         # comma-separated scopes
         str(signed_at),
-        "",  # token (empty)
+        token,          # gateway token (empty if auth mode is "none")
         nonce,
         "win32",
-        "",  # deviceFamily
+        "",             # deviceFamily
     ])
     signature = pk.sign(payload_str.encode())
     sig_b64url = base64.urlsafe_b64encode(signature).decode().rstrip("=")
@@ -68,49 +93,81 @@ def _sign_connect(device: dict, nonce: str) -> dict:
     }
 
 
-async def _connect_ws():
-    """Connect and authenticate to the OpenClaw gateway. Returns websocket."""
+async def _connect_ws(scopes: list[str] | None = None):
+    """Connect and authenticate to the OpenClaw gateway.
+
+    Tries with requested scopes first, falls back to empty scopes
+    if pairing is required.
+    """
     import websockets
 
     device = _load_device_identity()
     if not device:
         return None
 
-    ws = await websockets.connect(GATEWAY_URL, open_timeout=5)
+    try:
+        ws = await websockets.connect(GATEWAY_URL, open_timeout=10)
+    except Exception:
+        return None
 
-    # Get challenge
-    raw = await asyncio.wait_for(ws.recv(), timeout=5)
-    ch = json.loads(raw)
-    nonce = ch["payload"]["nonce"]
+    try:
+        # Receive challenge
+        raw = await asyncio.wait_for(ws.recv(), timeout=5)
+        ch = json.loads(raw)
+        nonce = ch["payload"]["nonce"]
 
-    # Authenticate with device identity
-    device_auth = _sign_connect(device, nonce)
-    connect_msg = {
-        "type": "req",
-        "id": str(uuid.uuid4()),
-        "method": "connect",
-        "params": {
+        # Determine auth config
+        auth_mode = _get_auth_mode()
+        token = _load_gateway_auth_token() if auth_mode == "token" else ""
+        requested_scopes = scopes if scopes is not None else []
+        scopes_str = ",".join(requested_scopes)
+
+        # Build connect message
+        device_auth = _build_device_auth(device, nonce, scopes=scopes_str, token=token)
+        connect_params = {
             "minProtocol": 3,
             "maxProtocol": 3,
             "client": {
-                "id": "gateway-client",
-                "version": "1.0.0",
+                "id": "cli",
+                "version": "2026.4.2",
                 "platform": "win32",
-                "mode": "backend",
+                "mode": "cli",
             },
             "role": "operator",
-            "scopes": ["operator.admin", "operator.approvals"],
+            "scopes": requested_scopes,
             "device": device_auth,
-        },
-    }
-    await ws.send(json.dumps(connect_msg))
-    resp = json.loads(await asyncio.wait_for(ws.recv(), timeout=5))
+        }
+        # Add auth.token only when gateway auth mode is "token"
+        if auth_mode == "token" and token:
+            connect_params["auth"] = {"token": token}
 
-    if not resp.get("ok"):
+        connect_msg = {
+            "type": "req",
+            "id": str(uuid.uuid4()),
+            "method": "connect",
+            "params": connect_params,
+        }
+        await ws.send(json.dumps(connect_msg))
+        resp = json.loads(await asyncio.wait_for(ws.recv(), timeout=5))
+
+        if resp.get("ok"):
+            return ws
+
+        # If scope upgrade needs pairing, retry with empty scopes
+        error_code = resp.get("error", {}).get("details", {}).get("code", "")
+        if error_code == "PAIRING_REQUIRED" and requested_scopes:
+            await ws.close()
+            return await _connect_ws(scopes=[])
+
         await ws.close()
         return None
 
-    return ws
+    except Exception:
+        try:
+            await ws.close()
+        except Exception:
+            pass
+        return None
 
 
 async def _request(ws, method: str, params: dict, timeout: float = 10) -> dict:
@@ -124,22 +181,46 @@ async def _request(ws, method: str, params: dict, timeout: float = 10) -> dict:
             return msg
 
 
+def is_gateway_available() -> bool:
+    """Fast cached check if gateway is reachable."""
+    now = time.time()
+    if (now - _gateway_cache["checked_at"]) < _CACHE_TTL and _gateway_cache["available"] is not None:
+        return _gateway_cache["available"]
+    # Can't run async from sync — return cached or assume unknown
+    return _gateway_cache.get("available", False)
+
+
 async def probe_gateway() -> dict:
-    """Probe the real OpenClaw gateway. Returns status dict."""
+    """Probe the OpenClaw gateway. Returns status dict."""
+    global _gateway_cache
     try:
-        ws = await _connect_ws()
+        ws = await _connect_ws(scopes=["operator.admin"])
         if not ws:
-            return {"running": False, "reason": "no device identity"}
+            # Try with no scopes — at least confirm gateway is running
+            ws = await _connect_ws(scopes=[])
+            if not ws:
+                _gateway_cache = {"available": False, "checked_at": time.time()}
+                return {"running": False, "reason": "connection failed"}
 
         async with ws:
-            # Health check
-            health = await _request(ws, "health", {})
-            health_payload = health.get("payload", {})
+            _gateway_cache = {"available": True, "checked_at": time.time()}
 
-            # Agents list
-            agents_resp = await _request(ws, "agents.list", {})
-            agents_payload = agents_resp.get("payload", {})
-            agents = agents_payload.get("agents", [])
+            # Try health check
+            try:
+                health = await _request(ws, "health", {}, timeout=5)
+                health_payload = health.get("result", health.get("payload", {}))
+            except Exception:
+                health_payload = {}
+
+            # Try agents list
+            agents = []
+            try:
+                agents_resp = await _request(ws, "gateway.agents", {}, timeout=5)
+                if agents_resp.get("ok"):
+                    agents_data = agents_resp.get("result", agents_resp.get("payload", {}))
+                    agents = agents_data.get("agents", [])
+            except Exception:
+                pass
 
             diamond_agents = [
                 a for a in agents if (a.get("id") or a.get("agentId") or "").startswith("diamond-")
@@ -153,25 +234,23 @@ async def probe_gateway() -> dict:
                 "diamond_agents": [a.get("id") or a.get("agentId") or "?" for a in diamond_agents],
                 "agent_count": len(agents),
                 "diamond_count": len(diamond_agents),
-                "default_agent": agents_payload.get("defaultAgentId", "main"),
+                "default_agent": health_payload.get("defaultAgentId", "main"),
                 "channels": list(health_payload.get("channels", {}).keys()),
             }
     except Exception as e:
+        _gateway_cache = {"available": False, "checked_at": time.time()}
         return {"running": False, "reason": str(e)}
 
 
-async def send_agent_message(agent_id: str, message: str, timeout_ms: int = 30000) -> dict:
-    """Send a message to an agent via the real OpenClaw gateway.
-
-    Returns the agent's response text and metadata.
-    """
+async def send_agent_message(agent_id: str, message: str, timeout_ms: int = 90000) -> dict:
+    """Send a message to an agent and collect the full response."""
     full_text = ""
     last_event = None
     async for event in stream_agent_message(agent_id, message, timeout_ms=timeout_ms):
         if event["type"] == "token":
             full_text += event["text"]
         elif event["type"] == "error":
-            return {"ok": False, "error": event["error"], "routed_via": "openclaw-gateway"}
+            return {"ok": False, "error": event["error"], "text": full_text, "agent_id": agent_id}
         last_event = event
 
     if last_event and last_event["type"] == "done":
@@ -181,9 +260,8 @@ async def send_agent_message(agent_id: str, message: str, timeout_ms: int = 3000
             "agent_id": agent_id,
             "run_id": last_event.get("run_id"),
             "session_key": last_event.get("session_key"),
-            "routed_via": "openclaw-gateway",
         }
-    return {"ok": bool(full_text), "text": full_text, "agent_id": agent_id, "routed_via": "openclaw-gateway"}
+    return {"ok": bool(full_text), "text": full_text, "agent_id": agent_id}
 
 
 async def stream_agent_message(
@@ -192,23 +270,26 @@ async def stream_agent_message(
     session_key: str | None = None,
     timeout_ms: int = 60000,
 ):
-    """Stream events from an agent via the real OpenClaw gateway.
+    """Stream events from an agent via the gateway.
 
-    Async generator yielding dicts:
-      {"type": "token", "text": "..."}        — response text (incremental or full)
-      {"type": "tool_use", "name": "..."}     — agent is executing a tool
-      {"type": "tool_result", "name": "..."}  — tool finished
+    Yields:
+      {"type": "token", "text": "..."}
+      {"type": "tool_use", "name": "..."}
+      {"type": "tool_result", "name": "...", ...}
+      {"type": "tool_output", "name": "...", "text": "..."}
+      {"type": "approval_request", ...}
       {"type": "done", "text": "...", "agent_id": "...", "run_id": "...", "session_key": "..."}
       {"type": "error", "error": "..."}
     """
     try:
-        ws = await _connect_ws()
+        ws = await _connect_ws(scopes=["operator.admin"])
         if not ws:
-            yield {"type": "error", "error": "Gateway unreachable or no device identity"}
+            ws = await _connect_ws(scopes=[])
+        if not ws:
+            yield {"type": "error", "error": "Cannot connect to OpenClaw gateway"}
             return
 
         async with ws:
-            # Session key format: agent:{agentId}:{sessionName}
             if not session_key:
                 session_key = f"agent:{agent_id}:webchat-{uuid.uuid4().hex[:8]}"
             idem = str(uuid.uuid4())
@@ -222,17 +303,17 @@ async def stream_agent_message(
             }, timeout=15)
 
             if not resp.get("ok"):
-                yield {"type": "error", "error": resp.get("error", {}).get("message", "agent request failed")}
+                err = resp.get("error", {}).get("message", "agent request failed")
+                yield {"type": "error", "error": err}
                 return
 
-            run_id = resp.get("payload", {}).get("runId")
+            run_id = resp.get("payload", resp.get("result", {})).get("runId")
             if not run_id:
                 yield {"type": "error", "error": "no run ID returned"}
                 return
 
             response_text = ""
             deadline = time.time() + (timeout_ms / 1000)
-            # Track whether we got text from agent stream (faster) vs chat events
             using_agent_stream = False
 
             while time.time() < deadline:
@@ -247,12 +328,10 @@ async def stream_agent_message(
                         payload = msg.get("payload", {})
 
                         if evt == "agent":
-                            # Agent events carry stream type: lifecycle, assistant, tool
                             stream = payload.get("stream", "")
                             data = payload.get("data", {})
 
                             if stream == "assistant":
-                                # Incremental text delta — faster than chat events
                                 delta = data.get("delta", "")
                                 if delta:
                                     using_agent_stream = True
@@ -260,7 +339,6 @@ async def stream_agent_message(
                                     yield {"type": "token", "text": delta}
 
                             elif stream == "tool":
-                                # Tool execution event from agent stream
                                 tool_name = data.get("name", data.get("toolName", ""))
                                 phase = data.get("phase", data.get("status", ""))
                                 if phase in ("start", "running"):
@@ -274,23 +352,15 @@ async def stream_agent_message(
                                         "exit_code": data.get("exitCode"),
                                         "output": data.get("output", ""),
                                     }
-                                # Incremental stdout during execution
                                 if data.get("stdout") and phase not in ("end", "done", "ok", "complete"):
-                                    yield {
-                                        "type": "tool_output",
-                                        "name": tool_name,
-                                        "text": data.get("stdout", ""),
-                                    }
+                                    yield {"type": "tool_output", "name": tool_name, "text": data.get("stdout", "")}
 
                             elif stream == "lifecycle":
-                                phase = data.get("phase", "")
-                                if phase == "end":
+                                if data.get("phase") == "end":
                                     break
 
                             else:
-                                # Legacy format: status field directly on payload
-                                status = payload.get("status", "")
-                                if status in ("ok", "done", "complete"):
+                                if payload.get("status") in ("ok", "done", "complete"):
                                     break
 
                         elif evt == "chat":
@@ -299,41 +369,30 @@ async def stream_agent_message(
                                 yield {"type": "error", "error": payload.get("errorMessage", "agent error")}
                                 return
 
-                            # Only use chat events for text if agent stream isn't active
                             if not using_agent_stream:
                                 message_obj = payload.get("message", {})
                                 content_blocks = message_obj.get("content", [])
                                 if isinstance(content_blocks, list):
-                                    content = " ".join(
-                                        c.get("text", "") for c in content_blocks if c.get("type") == "text"
-                                    )
+                                    content = " ".join(c.get("text", "") for c in content_blocks if c.get("type") == "text")
                                 elif isinstance(content_blocks, str):
                                     content = content_blocks
                                 else:
                                     content = ""
-
                                 if content and content != response_text:
-                                    if content.startswith(response_text):
-                                        delta = content[len(response_text):]
-                                    else:
-                                        delta = content
+                                    delta = content[len(response_text):] if content.startswith(response_text) else content
                                     if delta:
                                         yield {"type": "token", "text": delta}
                                     response_text = content
 
-                            # Update response_text from final chat event regardless
                             if state == "final":
                                 message_obj = payload.get("message", {})
                                 content_blocks = message_obj.get("content", [])
                                 if isinstance(content_blocks, list):
-                                    response_text = " ".join(
-                                        c.get("text", "") for c in content_blocks if c.get("type") == "text"
-                                    )
+                                    response_text = " ".join(c.get("text", "") for c in content_blocks if c.get("type") == "text")
                                 elif isinstance(content_blocks, str):
                                     response_text = content_blocks
 
                         elif evt == "tool":
-                            # Separate tool events (legacy format)
                             name = payload.get("name", payload.get("toolName", ""))
                             status = payload.get("status", "")
                             if status in ("running", "start"):
@@ -341,7 +400,6 @@ async def stream_agent_message(
                             elif status in ("done", "ok", "complete"):
                                 yield {"type": "tool_result", "name": name}
 
-                    # Exec approval request from gateway
                     elif msg.get("type") == "req" and msg.get("method") == "exec.approval.request":
                         approval_params = msg.get("params", {})
                         yield {
@@ -354,25 +412,23 @@ async def stream_agent_message(
                         }
 
                     elif msg.get("type") == "res":
-                        p = msg.get("payload", {})
+                        p = msg.get("payload", msg.get("result", {}))
                         if p.get("status") == "ok":
                             break
 
                 except asyncio.TimeoutError:
                     continue
 
-            # Fallback: fetch from session history if no streaming content
+            # Fallback: fetch from session history
             if not response_text:
                 try:
                     hist = await _request(ws, "chat.history", {"sessionKey": session_key}, timeout=5)
-                    messages = hist.get("payload", {}).get("messages", [])
+                    messages = hist.get("payload", hist.get("result", {})).get("messages", [])
                     for m in reversed(messages):
                         if m.get("role") == "assistant":
                             content = m.get("content", "")
                             if isinstance(content, list):
-                                response_text = " ".join(
-                                    c.get("text", "") for c in content if c.get("type") == "text"
-                                )
+                                response_text = " ".join(c.get("text", "") for c in content if c.get("type") == "text")
                             elif isinstance(content, str):
                                 response_text = content
                             if response_text:
@@ -394,17 +450,9 @@ async def stream_agent_message(
 
 
 async def resolve_approval(approval_id: str, decision: str) -> dict:
-    """Send an exec approval decision back to the gateway.
-
-    Args:
-        approval_id: The ID from the approval_request event
-        decision: "allow" or "deny"
-
-    Returns:
-        Gateway response dict
-    """
+    """Send an exec approval decision back to the gateway."""
     try:
-        ws = await _connect_ws()
+        ws = await _connect_ws(scopes=[])
         if not ws:
             return {"ok": False, "error": "Gateway unreachable"}
 
