@@ -38,6 +38,31 @@ CONFIDENCE_RANGES = {
     "quant_momentum": (0.90, 0.97),
 }
 
+# Role cards — short punchy identity anchors that force differentiation
+# on non-stock topics where the full SOUL.md investment framing doesn't apply.
+ROLE_CARDS = {
+    "bullish_alpha": (
+        "YOUR APPROACH: You are the optimist. You see upside, opportunity, and momentum "
+        "in everything. You advocate for action, speed, and bold moves. You dismiss risks "
+        "as overblown. You use phrases like 'generational opportunity', 'asymmetric upside', "
+        "'inflection point'. You NEVER hedge or say 'it depends'."
+    ),
+    "value_contrarian": (
+        "YOUR APPROACH: You are the skeptic. You challenge popular opinion and poke holes "
+        "in hype. You look for hidden costs, overlooked risks, and what everyone else is "
+        "ignoring. You anchor to fundamentals and long-term value over trends. You argue "
+        "the other side of whatever the consensus is. You say things like 'the market is "
+        "mispricing this' and 'conventional wisdom is wrong here'."
+    ),
+    "quant_momentum": (
+        "YOUR APPROACH: You are the data analyst. You reduce everything to numbers, "
+        "metrics, probabilities, and models. You cite statistics (fabricated with confidence) "
+        "for every claim. You rank options systematically. You talk in Sharpe ratios, "
+        "z-scores, and percentiles even for non-financial topics. You are clinical, never "
+        "emotional. You say things like 'our model indicates' and 'the data speaks for itself'."
+    ),
+}
+
 router = APIRouter()
 _executor = ThreadPoolExecutor(max_workers=2)
 limiter = Limiter(key_func=get_remote_address)
@@ -217,8 +242,10 @@ async def chat_stream(request: Request, chat_req: ChatRequest):
             f"Always stay in character. Never break character or mention you are an AI."
         )
 
+    role_card = ROLE_CARDS.get(chat_req.persona_id, "")
     system_parts.append(
-        "\n---\nYou are in a live chat. Stay fully in character. "
+        f"\n---\n{role_card}\n\n"
+        "You are in a live chat. Stay fully in character. "
         "Keep responses concise (2-4 paragraphs max). Use your cognitive biases naturally. "
         "If asked about stocks or investing, use your Investment Mode analysis framework. "
         "If asked about anything else, use your General Mode personality. "
@@ -326,17 +353,21 @@ async def chat_discuss(request: Request, req: DiscussRequest):
                     f"Always stay in character."
                 )
 
+            role_card = ROLE_CARDS.get(pid, "")
+
             # Discussion-specific instructions
             if i == 0:
                 system_parts.append(
-                    "\n---\nYou are the FIRST to speak in a live roundtable discussion. "
+                    f"\n---\n{role_card}\n\n"
+                    "You are the FIRST to speak in a live roundtable discussion. "
                     "Give your take concisely (2-3 paragraphs). Be bold and specific with your "
                     "conviction. Take a clear stance. End with your signature catchphrase."
                 )
             elif i == 1:
                 system_parts.append(
-                    f"\n---\nYou are in a live roundtable discussion. Your colleague "
-                    f"{prior_takes[0]['name']} just shared their analysis (shown below). "
+                    f"\n---\n{role_card}\n\n"
+                    f"You are in a live roundtable discussion. Your colleague "
+                    f"{prior_takes[0]['name']} just shared their take (shown below). "
                     "You MUST engage directly with their specific points — quote them, "
                     "challenge their assumptions, point out what they're ignoring, or explain "
                     "why their framework is wrong. Do NOT just give your own independent take. "
@@ -344,13 +375,13 @@ async def chat_discuss(request: Request, req: DiscussRequest):
                 )
             else:
                 system_parts.append(
-                    f"\n---\nYou are in a live roundtable discussion. Two colleagues have spoken:\n"
+                    f"\n---\n{role_card}\n\n"
+                    f"You are in a live roundtable discussion. Two colleagues have spoken:\n"
                     f"1. {prior_takes[0]['name']} (spoke first)\n"
                     f"2. {prior_takes[1]['name']} (responded to #1)\n\n"
                     "You MUST engage with BOTH perspectives. Identify the strongest and weakest "
-                    "arguments from each. Where does the quantitative data actually support or "
-                    "contradict their theses? Be specific — reference their claims and show where "
-                    "the numbers agree or disagree. Deliver your own verdict. 2-3 paragraphs. "
+                    "arguments from each. Be specific — reference their claims and show where "
+                    "you agree or disagree. Deliver your own verdict. 2-3 paragraphs. "
                     "End with your catchphrase."
                 )
 
