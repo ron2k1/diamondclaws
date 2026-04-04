@@ -178,86 +178,96 @@ def _parse_news_headlines(news_json: str) -> str:
         return ""
 
 
+def _extract_explicit_recommendation(analysis: str) -> str | None:
+    """
+    Parse the LLM's explicitly stated recommendation from its output.
+
+    SOUL.md personas are instructed to "State a clear recommendation" (BUY/SELL/HOLD).
+    Trust what the LLM actually wrote — the mask must not slip.
+    """
+    import re
+    # Match explicit recommendation patterns the SOUL.md personas produce:
+    # "we reiterate our BUY rating", "recommendation: SELL", "rating: HOLD",
+    # "we rate X a BUY", "our recommendation is BUY", "Overweight" (= BUY)
+    patterns = [
+        r'\b(?:recommend(?:ation)?|rating|rate|reiterate|initiat(?:e|ing)|maintain|suggest(?:s|ing)?|assign(?:ing)?|is(?:sue|suing)?)\b[^.]{0,30}\b(BUY|SELL|HOLD|STRONG BUY|OVERWEIGHT|UNDERWEIGHT|UNDERPERFORM)\b',
+        r'\b(BUY|SELL|HOLD|STRONG BUY|OVERWEIGHT|UNDERWEIGHT|UNDERPERFORM)\b[^.]{0,20}\b(?:recommendation|rating)\b',
+        r'\bclear\s+(BUY|SELL|HOLD)\b',
+    ]
+    # Map sell-side jargon to BUY/SELL/HOLD
+    jargon = {"STRONG BUY": "BUY", "OVERWEIGHT": "BUY", "UNDERWEIGHT": "SELL", "UNDERPERFORM": "SELL"}
+
+    for pattern in patterns:
+        match = re.search(pattern, analysis, re.IGNORECASE)
+        if match:
+            raw = match.group(1).upper()
+            return jargon.get(raw, raw)
+    return None
+
+
 def _derive_recommendation_from_narrative(analysis: str, persona_id: str) -> str:
     """
-    Derive BUY/SELL/HOLD from the narrative thesis itself, not from keyword extraction.
+    Derive BUY/SELL/HOLD from the analyst's own output.
 
-    The recommendation emerges from the actual argument being made, ensuring
-    coherence between narrative thesis and rating. This is philosophical purity:
-    the rating cannot contradict what was written.
+    Strategy: first trust the LLM's explicit recommendation (SOUL.md tells it
+    to state one clearly). Fall back to weighted sentiment scoring only if
+    no explicit recommendation is found.
     """
+    # 1. Trust what the LLM explicitly wrote
+    explicit = _extract_explicit_recommendation(analysis)
+    if explicit:
+        return explicit
+
+    # 2. Fallback: weighted sentiment scoring (context-blind but better than nothing)
     lower_analysis = analysis.lower()
 
-    # Bearish language patterns (declining, challenged, overvalued)
     bearish_words = {
         "declining": 2, "deteriorating": 2, "headwinds": 2, "challenged": 1,
         "overcrowded": 2, "overvalued": 2, "peaked": 2, "downward": 1,
-        "weakness": 1, "risk": 0.5, "caution": 1, "concerns": 0.5,
-        "downside": 1, "negative": 1, "weak": 0.5, "struggle": 1,
+        "weakness": 1, "caution": 1, "concerns": 0.5,
+        "downside": 1, "negative": 1, "struggle": 1,
         "pressure": 0.5, "margin compression": 2, "competition intensifies": 2,
         "market share loss": 2, "disruption threat": 2, "regulatory risk": 1.5,
     }
 
-    # Bullish language patterns (opportunity, upside, catalyst)
     bullish_words = {
         "opportunity": 1.5, "undervalued": 2, "catalyst": 2, "inflection": 2,
         "asymmetric": 2, "upside": 1, "optionality": 1.5, "recovery": 2,
-        "accelerating": 1, "strong": 0.5, "outperform": 1.5, "leadership": 1,
-        "innovation": 1, "emerging": 1, "growth": 0.5, "expansion": 1,
+        "accelerating": 1, "outperform": 1.5, "leadership": 1,
+        "innovation": 1, "growth": 0.5, "expansion": 1,
         "margin expansion": 2, "scale": 1, "network effects": 2,
-        "secular trends": 1.5, "emerging markets": 1,
+        "secular trends": 1.5,
     }
 
-    # Neutral/hedging patterns
-    neutral_words = {
-        "mixed": 1, "balanced": 1, "uncertain": 1, "unclear": 1,
-        "could": 0.3, "may": 0.3, "might": 0.3, "depends": 0.5,
-    }
-
-    # Score each category
     bear_score = sum(weight for word, weight in bearish_words.items() if word in lower_analysis)
     bull_score = sum(weight for word, weight in bullish_words.items() if word in lower_analysis)
-    neutral_score = sum(weight for word, weight in neutral_words.items() if word in lower_analysis)
-
-    # Persona-specific weighting
-    # Bullish Alpha is biased toward BUY even with marginal bull signals
-    # Value Contrarian can justify SELL on overvaluation
-    # Quant Momentum needs clear directional signals
 
     if persona_id == "bullish_alpha":
-        # More likely to see BUY (requires stronger bearish signals to flip to SELL)
         if bear_score > bull_score * 1.5:
             return "SELL"
         elif bull_score > 0.5:
             return "BUY"
-        else:
-            return "HOLD"
+        return "HOLD"
 
     elif persona_id == "value_contrarian":
-        # More likely to see SELL on overvaluation (requires strong bull thesis for BUY)
         if bear_score > bull_score and bear_score > 2:
             return "SELL"
         elif bull_score > bear_score * 1.5:
             return "BUY"
-        else:
-            return "HOLD"
+        return "HOLD"
 
     elif persona_id == "quant_momentum":
-        # Needs clear signal; neutral on mixed signals
         if bull_score > bear_score + 1.5:
             return "BUY"
         elif bear_score > bull_score + 1.5:
             return "SELL"
-        else:
-            return "HOLD"
+        return "HOLD"
 
-    # Default logic (shouldn't reach here)
     if bull_score > bear_score + 1:
         return "BUY"
     elif bear_score > bull_score + 1:
         return "SELL"
-    else:
-        return "HOLD"
+    return "HOLD"
 
 
 CONSENSUS_INJECTION = """
