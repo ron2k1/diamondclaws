@@ -130,7 +130,7 @@ Edit `.env` and add at least one API key (OpenRouter gives access to all models 
 OPENROUTER_API_KEY=sk-or-v1-your-key-here
 ```
 
-Build and run:
+Build and run (Docker automatically runs the OpenClaw setup):
 
 ```bash
 docker compose up --build
@@ -158,10 +158,11 @@ source venv/bin/activate
 venv\Scripts\activate
 ```
 
-Install dependencies and configure:
+Install dependencies and set up OpenClaw:
 
 ```bash
 pip install -r requirements.txt
+python scripts/setup_openclaw.py
 cp .env.example .env
 ```
 
@@ -179,14 +180,44 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 
 Open `http://localhost:8000`.
 
-### Option 3: With OpenClaw Gateway (Full Agent Mode)
+### What `setup_openclaw.py` Does
 
-For full agent capabilities (tools, file access, code execution), install and run the OpenClaw gateway alongside DiamondClaws:
+The setup script creates the full `~/.openclaw/` directory structure so agents work out of the box:
 
-1. Install OpenClaw and register the three diamond agents
-2. Start the OpenClaw gateway on port 18789
-3. Start DiamondClaws — it auto-detects the gateway and routes through it
-4. Agents now have workspaces, tool access, and exec approval flow
+```
+~/.openclaw/
+  openclaw.json              # Gateway config with 3 diamond agents registered
+  identity/
+    device.json              # Ed25519 keypair for gateway auth (auto-generated)
+  agents/
+    diamond-bull/
+      workspace/
+        SOUL.md              # Bullish Alpha personality (copied from repo)
+        IDENTITY.md          # Agent identity + pipeline position
+        AGENTS.md            # Workspace readme
+        memory/              # Session memory directory
+      agent/
+        models.json          # Model config (OpenRouter)
+        auth-profiles.json   # API key references (env vars, not hardcoded)
+    diamond-value/           # Same structure — Value Contrarian
+    diamond-quant/           # Same structure — Quant Momentum
+```
+
+Running the script again is safe — it preserves existing auth/channels config and only updates agent workspaces and SOUL.md files.
+
+### With OpenClaw Gateway (Full Agent Mode)
+
+For full agent capabilities (tools, file access, code execution), start the OpenClaw gateway alongside DiamondClaws:
+
+```bash
+# Terminal 1: Start gateway
+openclaw gateway start
+
+# Terminal 2: Start DiamondClaws
+uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+DiamondClaws auto-detects the gateway on port 18789 and routes through it. Agents get workspaces, tool access, and exec approval flow.
 
 Without the gateway, DiamondClaws falls back to direct LLM calls (chat still works, but agents cannot use tools).
 
