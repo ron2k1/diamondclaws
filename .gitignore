@@ -36,3 +36,5 @@ desktop.ini
 
 # Railway
 .railway/
+node_modules/
+logs/
