@@ -2,7 +2,7 @@
 
 **Cognitive distortion engine for biased AI equity research. Red-team simulation of manufactured institutional consensus.**
 
-Three AI agents — each loaded with a distinct SOUL.md personality and a specific set of peer-reviewed cognitive biases — analyze stocks by mutating clean market data before it ever reaches the LLM. The result is a multi-agent roundtable that behaves exactly like biased sell-side research: technically sophisticated, internally consistent, and structurally wrong in documented, auditable ways.
+Three AI agents -- each loaded with a distinct SOUL.md personality and a specific set of peer-reviewed cognitive biases -- analyze stocks by mutating clean market data before it ever reaches the LLM. The result is a multi-agent roundtable that behaves exactly like biased sell-side research: technically sophisticated, internally consistent, and structurally wrong in documented, auditable ways.
 
 **This is satire and a red-team tool. Not financial advice.**
 
@@ -13,10 +13,10 @@ Three AI agents — each loaded with a distinct SOUL.md personality and a specif
 1. Fetches fundamentals and price history from Yahoo Finance into a SQLite cache.
 2. Passes stock data through a programmatic distortion engine that applies 5 persona-specific cognitive biases per agent (15 total). Each transformation is logged with academic citation and audit trail.
 3. Routes the distorted data block to an LLM via the OpenClaw gateway, which manages agent identities, SOUL.md personalities, tool access, and streaming.
-4. Streams three sequential agent responses — Bullish Alpha, Value Contrarian, Quant Momentum — back to a Bloomberg-dark web UI over SSE.
+4. Streams three sequential agent responses -- Bullish Alpha, Value Contrarian, Quant Momentum -- back to a Bloomberg-dark web UI over SSE.
 5. Optionally runs an autonomous background monitor that watches 52 tickers every 2 minutes, and fires a popup consensus report when 3 of 4 bullish technical indicators agree.
 
-The core research claim is that cognitive distortions are not just vibes injected into a system prompt — they are implemented as deterministic data transformations with traceable bibliographic sources. The audit trail in each API response shows exactly what was warped and why.
+The core research claim is that cognitive distortions are not just vibes injected into a system prompt -- they are implemented as deterministic data transformations with traceable bibliographic sources. The audit trail in each API response shows exactly what was warped and why.
 
 ---
 
@@ -30,7 +30,7 @@ The core research claim is that cognitive distortions are not just vibes injecte
                     │ HTTP / SSE
 ┌───────────────────▼─────────────────────────────────┐
 │  FastAPI (:8000)                                      │
-│  api/routes.py — chat, discuss, analyze, monitor     │
+│  api/routes.py -- chat, discuss, analyze, monitor     │
 │  Rate limiting (slowapi), CORS                        │
 └───┬────────────────────────────────────┬────────────┘
     │                                    │
@@ -77,12 +77,12 @@ The core research claim is that cognitive distortions are not just vibes injecte
 | `api/routes.py` | All endpoints: chat, discuss, analyze, monitor, workspace, settings |
 | `tools/distortion.py` | 15 cognitive bias functions, audit trail, persona→pipeline mapping |
 | `tools/analysis.py` | Distortion application, LLM routing, recommendation extraction |
-| `tools/gateway_client.py` | OpenClaw WebSocket client — Ed25519 auth, streaming, exec approval |
+| `tools/gateway_client.py` | OpenClaw WebSocket client -- Ed25519 auth, streaming, exec approval |
 | `tools/openclaw.py` | Agent registry, SOUL.md loading, gateway status probe |
 | `tools/providers.py` | Provider display registry (3 direct + OpenRouter), key status |
-| `tools/yfinance_fetch.py` | Yahoo Finance fetcher — live + demo fallback for 52 tickers |
-| `tools/monitor.py` | Background poll loop — RSI/MACD/volume/MA indicators, trigger pipeline |
-| `tools/stockvizzy.py` | Headless matplotlib chart — dark-theme price + volume, saveable PNG |
+| `tools/yfinance_fetch.py` | Yahoo Finance fetcher -- live + demo fallback for 52 tickers |
+| `tools/monitor.py` | Background poll loop -- RSI/MACD/volume/MA indicators, trigger pipeline |
+| `tools/stockvizzy.py` | Headless matplotlib chart -- dark-theme price + volume, saveable PNG |
 | `tools/consensus_report.py` | Self-contained HTML popup report (chart embedded as base64) |
 | `models/database.py` | SQLite via SQLAlchemy, auto-migration on schema change |
 | `models/schemas.py` | Pydantic request/response models |
@@ -95,7 +95,7 @@ The core research claim is that cognitive distortions are not just vibes injecte
 
 ## Cognitive Distortion Engine
 
-The distortion engine (`tools/distortion.py`) is the core research contribution. It operates as a pure data transformation layer — it takes clean stock data from Yahoo Finance, mutates a context dictionary of formatted values, and returns both a distorted data block for the LLM prompt and a full audit trail.
+The distortion engine (`tools/distortion.py`) is the core research contribution. It operates as a pure data transformation layer -- it takes clean stock data from Yahoo Finance, mutates a context dictionary of formatted values, and returns both a distorted data block for the LLM prompt and a full audit trail.
 
 **Persona pipelines:**
 
@@ -115,7 +115,7 @@ The distortion engine (`tools/distortion.py`) is the core research contribution.
 }
 ```
 
-Each API response includes `distortions_applied` — a complete list of every transformation, action taken, and bibliographic citation.
+Each API response includes `distortions_applied` -- a complete list of every transformation, action taken, and bibliographic citation.
 
 ---
 
@@ -137,7 +137,7 @@ All three agents run sequentially. Agent 2 receives Agent 1's full output. Agent
 
 ### Consensus Attack
 
-`POST /api/analyze/consensus` runs all three personas with a `CONSENSUS_INJECTION` directive forcing BUY recommendations. This simulates coordinated institutional buy-side pressure — the kind of manufactured consensus across nominally independent research desks that drives retail behavior. The response includes a disclaimer labeling it as a red-team simulation.
+`POST /api/analyze/consensus` runs all three personas with a `CONSENSUS_INJECTION` directive forcing BUY recommendations. This simulates coordinated institutional buy-side pressure -- the kind of manufactured consensus across nominally independent research desks that drives retail behavior. The response includes a disclaimer labeling it as a red-team simulation.
 
 ### Exec Approval Flow
 
@@ -167,7 +167,7 @@ The popup is the only user-visible output from the monitor. No chat messages, no
 
 - Python 3.11+
 - [OpenClaw](https://openclaw.dev) installed and accessible as `openclaw` CLI (required for all LLM functionality)
-- At minimum one LLM API key — OpenRouter recommended (one key, 200+ models)
+- At minimum one LLM API key -- OpenRouter recommended (one key, 200+ models)
 
 ### Python (Direct)
 
@@ -226,7 +226,7 @@ Note: Docker builds run `setup_openclaw.py` automatically. You still need the Op
     diamond-quant/           # (same structure)
 ```
 
-Running the script again is safe — it preserves existing auth and channels config.
+Running the script again is safe -- it preserves existing auth and channels config.
 
 ---
 
@@ -234,7 +234,7 @@ Running the script again is safe — it preserves existing auth and channels con
 
 DiamondClaws requires the OpenClaw gateway for all LLM calls. There is no direct provider fallback in the current codebase (the `SPEC-OPENCLAW-REWRITE.md` documents that the gateway-only architecture was an intentional design decision).
 
-If the gateway is unreachable at startup, the app logs a warning and continues — stock data, the distortion engine, and the frontend all work, but chat and analysis endpoints will return gateway errors.
+If the gateway is unreachable at startup, the app logs a warning and continues -- stock data, the distortion engine, and the frontend all work, but chat and analysis endpoints will return gateway errors.
 
 ---
 
@@ -260,7 +260,7 @@ If the gateway is unreachable at startup, the app logs a warning and continues �
 | `GET` | `/api/chat/workspace/{agent_id}/file?path=` | Read agent workspace file |
 | `GET` | `/api/gateway/status` | OpenClaw gateway health + agent list |
 | `GET` | `/api/settings/keys` | Provider key status |
-| `PUT` | `/api/settings/keys` | Stub — keys managed by OpenClaw |
+| `PUT` | `/api/settings/keys` | Stub -- keys managed by OpenClaw |
 | `GET` | `/api/settings/models` | Current model configuration |
 | `PUT` | `/api/settings/models` | Update model config |
 | `GET` | `/api/monitor/status` | Monitor state, watchlist, cooldowns, last poll |
