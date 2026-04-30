@@ -1,5 +1,7 @@
 # DiamondClaws
 
+[![GitTok — vertical demo videos of finished GitHub projects](https://dev.gittok.net/og/readme-card.svg)](https://dev.gittok.net/feed)
+
 **Cognitive distortion engine for biased AI equity research. Red-team simulation of manufactured institutional consensus.**
 
 Three AI agents -- each loaded with a distinct SOUL.md personality and a specific set of peer-reviewed cognitive biases -- analyze stocks by mutating clean market data before it ever reaches the LLM. The result is a multi-agent roundtable that behaves exactly like biased sell-side research: technically sophisticated, internally consistent, and structurally wrong in documented, auditable ways.
